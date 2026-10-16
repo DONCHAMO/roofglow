@@ -1,0 +1,239 @@
+/*!
+ * RoofGlow — roofline measuring and Christmas light preview
+ * Long Island Christmas Lights Pros
+ * Every rule is scoped to #roofglow so it never touches the rest of the Webflow site,
+ * and the reset block below keeps Webflow's global styles out of the app.
+ */
+
+/* ---------- Theme tokens ---------- */
+#roofglow{
+  --rg-paper:#F4F7FA; --rg-surface:#FFFFFF; --rg-ink:#18263A; --rg-muted:#566578;
+  --rg-line:#D3DCE6; --rg-pine:#2E5E4E; --rg-pine-ink:#FFFFFF; --rg-berry:#B23A48;
+  --rg-bulb:#F2B544; --rg-field:#FFFFFF;
+  --rg-scroll-offset:90px; /* space for a fixed Webflow navbar when jumping to the preview */
+  color-scheme:light;
+}
+/* Optional dark look: set data-rg-theme="dark" on #roofglow, or "auto" to follow the visitor's device */
+#roofglow[data-rg-theme="dark"]{
+  --rg-paper:#0E1723; --rg-surface:#162233; --rg-ink:#E7EDF4; --rg-muted:#9AAABB;
+  --rg-line:#2A3A4F; --rg-pine:#6DB399; --rg-pine-ink:#0E1723; --rg-berry:#E06B78;
+  --rg-field:#0F1A28; color-scheme:dark;
+}
+@media (prefers-color-scheme:dark){
+  #roofglow[data-rg-theme="auto"]{
+    --rg-paper:#0E1723; --rg-surface:#162233; --rg-ink:#E7EDF4; --rg-muted:#9AAABB;
+    --rg-line:#2A3A4F; --rg-pine:#6DB399; --rg-pine-ink:#0E1723; --rg-berry:#E06B78;
+    --rg-field:#0F1A28; color-scheme:dark;
+  }
+}
+
+/* ---------- Isolation from Webflow's global CSS ---------- */
+#roofglow{
+  display:block; width:100%; max-width:100%;
+  background:var(--rg-paper); color:var(--rg-ink);
+  font:400 16px/1.55 "Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
+  text-align:left; letter-spacing:normal; text-transform:none;
+  -webkit-font-smoothing:antialiased;
+  container-type:inline-size; container-name:roofglow;
+}
+#roofglow,#roofglow *,#roofglow *::before,#roofglow *::after{box-sizing:border-box}
+#roofglow h1,#roofglow h2,#roofglow h3,#roofglow p,#roofglow ul,#roofglow ol,
+#roofglow dl,#roofglow dt,#roofglow dd,#roofglow figure{margin:0;padding:0}
+#roofglow h1,#roofglow h2,#roofglow h3{
+  font-family:"Bricolage Grotesque","Atkinson Hyperlegible",system-ui,Arial,sans-serif;
+  line-height:1.1; color:inherit; text-transform:none; letter-spacing:normal;
+}
+#roofglow label{display:inline; margin:0; font-weight:700; font-size:.9rem; color:inherit; line-height:1.4}
+#roofglow img{max-width:none; vertical-align:baseline}
+#roofglow canvas{max-width:100%}
+#roofglow strong,#roofglow b{font-weight:700}
+#roofglow [hidden]{display:none !important}
+#roofglow :focus-visible{outline:3px solid var(--rg-bulb); outline-offset:2px}
+
+/* ---------- Layout ---------- */
+#roofglow .rg-wrap{max-width:1240px; margin:0 auto; padding:clamp(1rem,3vw,2.25rem)}
+#roofglow .rg-top{display:grid; gap:.5rem; margin-bottom:1.5rem; max-width:62ch}
+#roofglow .rg-top h1{font-size:clamp(2rem,5vw,3.25rem); font-weight:800; letter-spacing:-.02em}
+#roofglow .rg-top p{color:var(--rg-muted); font-size:1.075rem}
+#roofglow .rg-layout{display:grid; gap:1.5rem; grid-template-columns:minmax(0,1fr) 360px; align-items:start}
+
+/* ---------- Steps ---------- */
+#roofglow .rg-steps{list-style:none; margin:0 0 1rem; padding:0; display:flex; flex-wrap:wrap; gap:.5rem 1.25rem}
+#roofglow .rg-steps li{display:flex; align-items:center; gap:.5rem; color:var(--rg-muted); font-weight:700; margin:0; padding:0}
+#roofglow .rg-steps li span{
+  display:inline-grid; place-items:center; width:1.7rem; height:1.7rem; border-radius:50%;
+  border:2px solid var(--rg-line); font-size:.85rem
+}
+#roofglow .rg-steps li.rg-on{color:var(--rg-ink)}
+#roofglow .rg-steps li.rg-on span{border-color:var(--rg-bulb); background:var(--rg-bulb); color:#2a1d00}
+#roofglow .rg-steps li.rg-done span{border-color:var(--rg-pine); background:var(--rg-pine); color:var(--rg-pine-ink)}
+
+/* ---------- Buttons & fields ---------- */
+#roofglow .rg-toolbar{display:flex; flex-wrap:wrap; gap:.5rem; margin-bottom:.75rem}
+#roofglow button,#roofglow .rg-btn{
+  font:inherit; font-weight:700; font-size:.95rem; line-height:1.3; cursor:pointer;
+  border:1.5px solid var(--rg-line); background:var(--rg-surface); color:var(--rg-ink);
+  padding:.55rem .9rem; margin:0; border-radius:8px; display:inline-flex; align-items:center; gap:.4rem;
+  text-decoration:none; text-transform:none; box-shadow:none; width:auto; height:auto; min-height:0;
+  -webkit-appearance:none; appearance:none
+}
+#roofglow button:hover,#roofglow .rg-btn:hover{border-color:var(--rg-ink)}
+#roofglow button:disabled{opacity:.45; cursor:not-allowed; border-color:var(--rg-line)}
+#roofglow button[aria-pressed="true"]{background:var(--rg-ink); color:var(--rg-paper); border-color:var(--rg-ink)}
+#roofglow button.rg-primary{background:var(--rg-pine); border-color:var(--rg-pine); color:var(--rg-pine-ink)}
+#roofglow button.rg-ghost{border-color:transparent; background:transparent; color:var(--rg-muted); padding:.3rem .5rem}
+#roofglow button.rg-ghost:hover{color:var(--rg-berry)}
+#roofglow button.rg-danger{margin-left:auto; color:var(--rg-berry); border-color:var(--rg-berry)}
+#roofglow button.rg-danger:hover{background:var(--rg-berry); color:#fff; border-color:var(--rg-berry)}
+#roofglow button.rg-danger:disabled{color:var(--rg-muted); border-color:var(--rg-line); background:var(--rg-surface)}
+#roofglow button.rg-lit{background:var(--rg-bulb); border-color:var(--rg-bulb); color:#2a1d00}
+#roofglow button.rg-lit:hover{border-color:var(--rg-ink)}
+#roofglow input[type=file]{position:absolute; width:1px; height:1px; opacity:0; pointer-events:none}
+
+#roofglow input[type=number],#roofglow input[type=text],#roofglow select{
+  font:inherit; font-size:1rem; line-height:1.3; color:var(--rg-ink); background:var(--rg-field);
+  border:1.5px solid var(--rg-line); border-radius:8px; padding:.45rem .6rem; margin:0;
+  min-width:0; height:auto; box-shadow:none; display:inline-block
+}
+#roofglow select{-webkit-appearance:menulist; appearance:auto; max-width:100%}
+#roofglow input[type=number]{width:5.5rem}
+#roofglow input[type=range],#roofglow input[type=checkbox]{margin:0}
+
+/* ---------- Photo stage ---------- */
+#roofglow .rg-stage{
+  position:relative; border-radius:12px; overflow:hidden; background:#0d1520;
+  display:grid; place-items:center; min-height:320px
+}
+#roofglow .rg-stage canvas{display:block; touch-action:none; cursor:crosshair; max-width:100%}
+#roofglow .rg-stage canvas:focus{outline:none}
+#roofglow .rg-stage canvas:focus-visible{outline:3px solid var(--rg-bulb); outline-offset:-3px}
+#roofglow .rg-empty{
+  width:100%; min-height:360px; display:grid; place-items:center; text-align:center; padding:2rem;
+  color:#C9D4E0; border:2px dashed #3B4B60; border-radius:12px; background:
+  radial-gradient(circle at 20% 15%,rgba(242,181,68,.10),transparent 40%),#0d1520
+}
+#roofglow .rg-empty.rg-drag{border-color:var(--rg-bulb)}
+#roofglow .rg-empty h2{font-size:1.4rem; color:#fff; margin-bottom:.4rem}
+#roofglow .rg-empty p{margin:0 auto 1rem; max-width:44ch}
+
+#roofglow .rg-hint{min-height:1.6em; margin:.65rem 0 0; color:var(--rg-muted)}
+#roofglow .rg-hint strong{color:var(--rg-ink)}
+
+#roofglow .rg-scaleform{
+  display:none; margin-top:.75rem; padding:1rem; border-radius:10px;
+  background:var(--rg-surface); border:1.5px solid var(--rg-berry)
+}
+#roofglow .rg-scaleform.rg-show{display:block}
+#roofglow .rg-scaleform .rg-row{display:flex; flex-wrap:wrap; gap:.5rem; align-items:center}
+#roofglow .rg-scaleform small{display:block; color:var(--rg-muted); margin-top:.5rem; font-size:.85rem}
+
+/* ---------- Cards ---------- */
+#roofglow .rg-panel{display:grid; gap:1rem}
+#roofglow .rg-card{background:var(--rg-surface); border:1px solid var(--rg-line); border-radius:12px; padding:1.1rem 1.15rem}
+#roofglow .rg-card.rg-mt{margin-top:1rem}
+#roofglow .rg-card h2{font-size:1.15rem; margin-bottom:.75rem}
+#roofglow .rg-cardhead{display:flex; justify-content:space-between; align-items:center; gap:.5rem; margin-bottom:.25rem}
+#roofglow .rg-cardhead h2{margin:0}
+#roofglow .rg-field{display:grid; grid-template-columns:1fr auto; gap:.5rem; align-items:center; margin-bottom:.6rem}
+#roofglow .rg-field select{max-width:11rem}
+#roofglow .rg-note{color:var(--rg-muted); font-size:.88rem; margin:.25rem 0 0}
+#roofglow .rg-note.rg-note-top{margin:0 0 .6rem}
+#roofglow .rg-note.rg-note-angle{margin:-.3rem 0 .7rem}
+#roofglow .rg-save{margin-top:.9rem}
+
+/* ---------- Strings & runs ---------- */
+#roofglow .rg-runs{list-style:none; margin:.75rem 0 0; padding:0}
+#roofglow .rg-runs li{display:flex; justify-content:space-between; align-items:center; gap:.5rem; padding:.4rem 0; margin:0; border-top:1px solid var(--rg-line)}
+#roofglow .rg-runs li:first-child{border-top:0}
+#roofglow .rg-runs .rg-len{font-variant-numeric:tabular-nums; font-weight:700}
+#roofglow .rg-runs .rg-empty-row{color:var(--rg-muted); font-size:.92rem}
+#roofglow .rg-addrow{display:grid; grid-template-columns:1fr 5.5rem auto; gap:.5rem}
+#roofglow .rg-addrow input{width:100%}
+#roofglow .rg-addto{font-size:.88rem; color:var(--rg-muted); margin:.5rem 0 0}
+
+#roofglow .rg-strings{list-style:none; margin:.75rem 0 0; padding:0; display:grid; gap:.6rem}
+#roofglow .rg-str{border:1.5px solid var(--rg-line); border-radius:10px; padding:.6rem .75rem; margin:0; cursor:pointer; background:var(--rg-field)}
+#roofglow .rg-str.rg-active{border-color:var(--rg-ink); box-shadow:inset 4px 0 0 var(--sw)}
+#roofglow .rg-str .rg-row{display:flex; align-items:center; gap:.6rem; flex-wrap:wrap}
+#roofglow .rg-str .rg-sw{width:14px; height:14px; border-radius:50%; background:var(--sw); flex:none; box-shadow:0 0 8px var(--sw)}
+#roofglow .rg-str input[type=text]{flex:1 1 8rem; font-weight:700; border-color:transparent; background:transparent; padding:.25rem .35rem}
+#roofglow .rg-str input[type=text]:hover,#roofglow .rg-str input[type=text]:focus{border-color:var(--rg-line); background:var(--rg-surface)}
+#roofglow .rg-str .rg-len{font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap}
+#roofglow .rg-str .rg-tag{font-size:.8rem; color:var(--rg-muted); white-space:nowrap}
+#roofglow .rg-str .rg-runs{margin:.35rem 0 0 1.6rem}
+#roofglow .rg-str .rg-runs li{font-size:.92rem; padding:.25rem 0}
+
+/* ---------- Results ---------- */
+#roofglow .rg-total{background:var(--rg-ink); color:var(--rg-paper); border:0; position:relative; overflow:hidden}
+#roofglow .rg-total .rg-big{font-family:"Bricolage Grotesque",system-ui,Arial,sans-serif; font-weight:800; font-size:clamp(2.6rem,6vw,3.4rem); line-height:1; letter-spacing:-.02em}
+#roofglow .rg-total .rg-sub{opacity:.75; margin:.35rem 0 1rem}
+#roofglow .rg-bulbs-deco{display:flex; gap:9px; margin:0 0 1rem; height:14px; align-items:flex-end; overflow:hidden}
+#roofglow .rg-bulbs-deco i{flex:none; width:8px; height:12px; border-radius:50% 50% 45% 45%; background:var(--rg-bulb); box-shadow:0 0 10px 2px rgba(242,181,68,.55)}
+#roofglow .rg-bulbs-deco i:nth-child(5n+2){background:#FF6464; box-shadow:0 0 10px 2px rgba(255,100,100,.5)}
+#roofglow .rg-bulbs-deco i:nth-child(5n+3){background:#47D18A; box-shadow:0 0 10px 2px rgba(71,209,138,.5)}
+#roofglow .rg-bulbs-deco i:nth-child(5n+4){background:#5AA9FF; box-shadow:0 0 10px 2px rgba(90,169,255,.5)}
+#roofglow .rg-stats{display:grid; grid-template-columns:1fr 1fr; gap:.85rem 1rem; margin:0}
+#roofglow .rg-stats div{display:grid}
+#roofglow .rg-stats dt{font-size:.85rem; opacity:.75; font-weight:400}
+#roofglow .rg-stats dd{margin:0; font-weight:700; font-size:1.2rem; font-variant-numeric:tabular-nums}
+#roofglow .rg-total button{margin-top:1.1rem; background:var(--rg-bulb); border-color:var(--rg-bulb); color:#2a1d00; width:100%; justify-content:center}
+#roofglow .rg-breakdown{list-style:none; margin:1rem 0 0; padding:.85rem 0 0; border-top:1px solid rgba(255,255,255,.18); display:grid; gap:.4rem}
+#roofglow .rg-breakdown li{display:grid; grid-template-columns:auto 1fr auto; gap:.5rem; align-items:center; font-size:.92rem; margin:0}
+#roofglow .rg-breakdown .rg-sw{width:10px; height:10px; border-radius:50%; background:var(--sw)}
+#roofglow .rg-breakdown .rg-v{font-variant-numeric:tabular-nums; opacity:.85}
+#roofglow .rg-warn{margin:.9rem 0 0; font-size:.88rem; color:#FFD7A0}
+@media (prefers-reduced-motion:no-preference){
+  #roofglow .rg-bulbs-deco i{animation:rg-twinkle 2.4s ease-in-out infinite}
+  #roofglow .rg-bulbs-deco i:nth-child(odd){animation-delay:1.2s}
+}
+@keyframes rg-twinkle{50%{opacity:.55}}
+
+/* ---------- Night preview ---------- */
+#roofglow .rg-pv{margin-top:2rem; border:1px solid var(--rg-line); border-radius:14px; background:var(--rg-surface); color:var(--rg-ink); overflow:hidden; scroll-margin-top:var(--rg-scroll-offset)}
+#roofglow .rg-pvhead{display:flex; justify-content:space-between; align-items:center; gap:1rem; padding:.9rem 1.1rem}
+#roofglow .rg-pvhead h2{font-size:1.35rem}
+#roofglow .rg-pvstage{background:#05080d; padding:0}
+#roofglow .rg-pvempty{margin:0; padding:3rem 1.5rem; text-align:center; color:#C9D4E0; line-height:1.5}
+#roofglow .rg-pvframe{position:relative; width:fit-content; max-width:100%; margin:0 auto; line-height:0}
+#roofglow .rg-pvframe canvas{display:block; max-width:100%; max-height:80vh; width:auto; height:auto}
+#roofglow .rg-pvframe img{position:absolute; inset:0; display:block; width:100%; height:100%; max-width:100%; clip-path:inset(0 100% 0 0)}
+#roofglow .rg-pvdiv{position:absolute; top:0; bottom:0; width:2px; background:#fff; box-shadow:0 0 8px rgba(0,0,0,.7); pointer-events:none}
+#roofglow .rg-pvctrl{display:flex; flex-wrap:wrap; gap:.8rem 1.5rem; align-items:end; padding:1rem 1.1rem .6rem}
+#roofglow .rg-pvctrl label{display:grid; gap:.25rem; font-size:.88rem}
+#roofglow .rg-pvctrl input[type=range]{width:170px; accent-color:var(--rg-bulb)}
+#roofglow .rg-pvctrl .rg-primary{margin-left:auto}
+#roofglow .rg-pvctrl label.rg-chk{display:flex; align-items:center; gap:.4rem; font-weight:700; padding-bottom:.35rem}
+#roofglow .rg-pvctrl input[type=checkbox]{width:1.1rem; height:1.1rem; accent-color:var(--rg-pine)}
+#roofglow .rg-pvnote{padding:0 1.1rem 1rem; color:var(--rg-muted); font-size:.85rem; margin:0}
+#roofglow .rg-foot{margin-top:2rem; color:var(--rg-muted); font-size:.9rem; max-width:70ch}
+
+/* ---------- Responsive ----------
+   Container queries respond to the width RoofGlow actually has inside the Webflow page,
+   so it adapts correctly whether it sits in a full-width section or a narrow container.
+   The matching media queries are a fallback for older browsers. */
+@media (max-width:960px){
+  #roofglow .rg-layout{grid-template-columns:minmax(0,1fr)}
+}
+@container roofglow (max-width:900px){
+  #roofglow .rg-layout{grid-template-columns:minmax(0,1fr)}
+}
+@container roofglow (max-width:620px){
+  #roofglow .rg-toolbar button,#roofglow .rg-toolbar .rg-btn{flex:1 1 auto; justify-content:center}
+  #roofglow button.rg-danger{margin-left:0}
+  #roofglow .rg-empty{min-height:280px; padding:1.25rem}
+  #roofglow .rg-pvctrl{gap:.9rem}
+  #roofglow .rg-pvctrl label{flex:1 1 100%}
+  #roofglow .rg-pvctrl input[type=range]{width:100%}
+  #roofglow .rg-pvctrl label.rg-chk{flex:0 0 auto}
+  #roofglow .rg-pvctrl .rg-primary{margin-left:0; flex:1 1 100%; justify-content:center}
+  #roofglow .rg-field select{max-width:12rem}
+}
+@container roofglow (max-width:380px){
+  #roofglow .rg-addrow{grid-template-columns:1fr 4.5rem}
+  #roofglow .rg-addrow button{grid-column:1 / -1; justify-content:center}
+  #roofglow .rg-stats dd{font-size:1.05rem}
+}
+@media (max-width:620px){
+  #roofglow .rg-pvctrl label{flex:1 1 100%}
+  #roofglow .rg-pvctrl input[type=range]{width:100%}
+}
