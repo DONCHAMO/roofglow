@@ -141,6 +141,7 @@
       <div class="rgsv-view" id="rg-svView"></div>
       <div class="rgsv-foot">
         <p class="rgsv-tip">Drag to look around, click the arrows to move along the street, and scroll or pinch to zoom. Frame the house, then use this view.</p>
+        <label class="rgsv-hq"><input type="checkbox" id="rg-svHQ" checked> High resolution <span>(uses up to 9 Street View photos)</span></label>
         <button type="button" class="rgsv-btn" id="rg-svUse" disabled>Use this view</button>
       </div>`;
     document.body.appendChild(svDlg);
@@ -193,6 +194,7 @@
       svPano.setZoom(1);
       svPano.setVisible(true);
       svMsg(`${geo.results[0].formatted_address}. Aim and zoom so the whole roofline fits, then use this view.`);
+      if (svBlocked){ $('#svHQ').checked = false; $('#svHQ').disabled = true; $('#svHQ').parentNode.title = 'Google doesn’t allow high-resolution stitching on this site.'; }
       $('#svUse').disabled = false;
     } finally { $('#svGo').disabled = false; }
   }
@@ -207,18 +209,111 @@
       a.src = url;
     });
   }
+  const svUrl = (pano, hd, pd, fov, w, h) => 'https://maps.googleapis.com/maps/api/streetview?size=' + w + 'x' + h +
+    '&pano=' + encodeURIComponent(pano) + '&heading=' + hd.toFixed(3) + '&pitch=' + pd.toFixed(3) +
+    '&fov=' + fov.toFixed(3) + '&return_error_code=true&source=outdoor&key=' + encodeURIComponent(GKEY);
+
+  /* High resolution: Google caps each Street View photo at 640 px, so take several narrower
+     shots of the same view and re-project every pixel into one larger, sharper photo.
+     Camera model: heading clockwise from north, pitch up, horizontal field of view, no roll. */
+  const D2R = Math.PI / 180;
+  function camFrame(hd, pd){
+    const h = hd * D2R, p = pd * D2R;
+    const f = [Math.sin(h)*Math.cos(p), Math.cos(h)*Math.cos(p), Math.sin(p)];   // forward (east, north, up)
+    const r = [Math.cos(h), -Math.sin(h), 0];                                       // right
+    const u = [r[1]*f[2] - r[2]*f[1], r[2]*f[0] - r[0]*f[2], r[0]*f[1] - r[1]*f[0]]; // up
+    return {f, r, u};
+  }
+  function svPlan(hd, pd, fov, aspect){
+    const cols = Math.max(1, Math.min(3, Math.floor(fov * 1.3 / 15)));          // keep each shot at least 15° wide
+    if (cols < 2) return null;
+    const ft = Math.min(120, fov / cols * 1.3);                                     // each shot overlaps its neighbours
+    let fo = 320 / Math.tan(ft / 2 * D2R);                                          // match the shots' detail
+    let W = 2 * fo * Math.tan(fov / 2 * D2R);
+    if (W > 2400){ fo *= 2400 / W; W = 2400; }
+    W = Math.round(W); const H = Math.round(W * aspect);
+    const vfov = 2 * Math.atan(H / 2 / fo) / D2R;
+    const rows = Math.max(1, Math.min(3, Math.ceil(vfov * 1.3 / ft)));
+    const O = camFrame(hd, pd), tiles = [];
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++){
+      const x = (i + .5) / cols * W - W/2, y = (j + .5) / rows * H - H/2;
+      const d = [0,1,2].map(n => O.f[n]*fo + O.r[n]*x - O.u[n]*y), L = Math.hypot(...d);
+      tiles.push({hd: (Math.atan2(d[0], d[1]) / D2R + 360) % 360, pd: Math.asin(d[2] / L) / D2R});
+    }
+    return {W, H, fo, ft, tiles, O};
+  }
+  function svStitch(plan, imgs){
+    const {W, H, fo, ft, O} = plan, T = 640, half = T / 2, fT = half / Math.tan(ft / 2 * D2R);
+    const tiles = plan.tiles.map((t, n) => {
+      const c = document.createElement('canvas'); c.width = c.height = T;
+      const g = c.getContext('2d'); g.drawImage(imgs[n], 0, 0, T, T);
+      return {...camFrame(t.hd, t.pd), px: g.getImageData(0, 0, T, T).data};   // throws if Google blocks pixel access
+    });
+    const out = document.createElement('canvas'); out.width = W; out.height = H;
+    const og = out.getContext('2d'), od = og.createImageData(W, H), o = od.data;
+    const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+    const d = [0, 0, 0];
+    for (let y = 0; y < H; y++){
+      const yy = -(y + .5 - H/2);
+      for (let x = 0; x < W; x++){
+        const xx = x + .5 - W/2;
+        d[0] = O.f[0]*fo + O.r[0]*xx + O.u[0]*yy;
+        d[1] = O.f[1]*fo + O.r[1]*xx + O.u[1]*yy;
+        d[2] = O.f[2]*fo + O.r[2]*xx + O.u[2]*yy;
+        // use the shot whose center points closest to this pixel
+        let best = tiles[0], bz = -Infinity;
+        for (const t of tiles){ const z = dot(d, t.f); if (z > bz){ bz = z; best = t; } }
+        let sx = fT * dot(d, best.r) / bz + half - .5, sy = -fT * dot(d, best.u) / bz + half - .5;
+        sx = Math.min(T - 1.001, Math.max(0, sx)); sy = Math.min(T - 1.001, Math.max(0, sy));
+        const x0 = sx | 0, y0 = sy | 0, fx = sx - x0, fy = sy - y0, p = best.px;
+        const i00 = (y0*T + x0) * 4, i10 = i00 + 4, i01 = i00 + T*4, i11 = i01 + 4, k = (y*W + x) * 4;
+        for (let c = 0; c < 3; c++){
+          const top = p[i00+c] + (p[i10+c] - p[i00+c]) * fx, bot = p[i01+c] + (p[i11+c] - p[i01+c]) * fx;
+          o[k+c] = top + (bot - top) * fy;
+        }
+        o[k+3] = 255;
+      }
+    }
+    og.putImageData(od, 0, 0);
+    return out;
+  }
+  const imgFromUrl = url => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+  // Pixel access is needed for stitching; load with CORS only (no retry, so no wasted requests)
+  const imgCors = url => new Promise((res, rej) => { const i = new Image(); i.crossOrigin = 'anonymous'; i.onload = () => res(i); i.onerror = rej; i.src = url; });
+  const imgPlain = url => new Promise((res, rej) => { const i = new Image(); i.onload = () => { i.rgTainted = true; res(i); }; i.onerror = rej; i.src = url; });
+  let svBlocked = false;     // set once we learn Google blocks pixel access on this site
+
+  // Load Google's still image of exactly what the viewer shows
   async function svUse(){
     if (!svPano) return;
-    const pov = svPano.getPov(), z = svPano.getZoom() || 1;
+    const pov = svPano.getPov(), z = svPano.getZoom() || 1, pano = svPano.getPano();
     const fov = Math.max(20, Math.min(120, 180 / Math.pow(2, z)));
-    const el = $('#svView'), ratio = el.clientHeight / Math.max(1, el.clientWidth);
-    const w = 640, h = Math.max(360, Math.min(640, Math.round(640 * ratio)));   // Google's largest size is 640 px
-    const url = 'https://maps.googleapis.com/maps/api/streetview?size=' + w + 'x' + h +
-      '&pano=' + encodeURIComponent(svPano.getPano()) + '&heading=' + pov.heading.toFixed(2) + '&pitch=' + pov.pitch.toFixed(2) +
-      '&fov=' + fov.toFixed(1) + '&return_error_code=true&source=outdoor&key=' + encodeURIComponent(GKEY);
-    svMsg('Loading the photo…'); $('#svUse').disabled = true;
+    const el = $('#svView'), aspect = Math.max(.5, Math.min(1, el.clientHeight / Math.max(1, el.clientWidth)));
+    $('#svUse').disabled = true;
     try {
-      const img = await loadRemote(url);
+      const plan = $('#svHQ').checked && !svBlocked ? svPlan(pov.heading, pov.pitch, fov, aspect) : null;
+      if (plan){
+        svMsg(`Taking ${plan.tiles.length} Street View photos for high resolution…`);
+        try {
+          const urls = plan.tiles.map(t => svUrl(pano, t.hd, t.pd, plan.ft, 640, 640));
+          // try one shot first: if Google blocks pixel access, stop before requesting the rest
+          let first;
+          try { first = await imgCors(urls[0]); }
+          catch(_){ await imgPlain(urls[0]); svBlocked = true; throw new Error('blocked'); }
+          const imgs = [first, ...await Promise.all(urls.slice(1).map(imgCors))];
+          const out = svStitch(plan, imgs);
+          const img = await imgFromUrl(out.toDataURL('image/jpeg', .92));
+          svDlg.close(); useImage(img, 'streetview'); ws.scrollIntoView({behavior:'smooth', block:'start'});
+          return;
+        } catch(e){
+          svMsg(e.message === 'blocked'
+            ? 'Google doesn’t allow high-resolution stitching here, so using the standard photo…'
+            : 'High resolution didn’t work for this view, so using the standard photo…');
+        }
+      } else svMsg('Loading the photo…');
+      const w = 640, h = Math.max(360, Math.min(640, Math.round(640 * aspect)));   // Google's largest size is 640 px
+      const url = svUrl(pano, pov.heading, pov.pitch, fov, w, h);
+      const img = svBlocked ? await imgPlain(url) : await loadRemote(url);
       svDlg.close();
       useImage(img, 'streetview');
       ws.scrollIntoView({behavior:'smooth', block:'start'});
