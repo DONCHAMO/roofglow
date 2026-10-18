@@ -69,6 +69,7 @@
         S.source = source; S.tainted = !!img.rgTainted;
         S.img = img; S.scalePts = []; S.pxPerFt = null; S.runs = []; S.current = [];
         S.decor = []; S.garland = []; S.selDecor = null; S.drag = null; S.zoom = 1;
+        S.cropStack = []; S.crop = null; S.cropDrag = null;
         empty.hidden = true; cv.hidden = false;
         $('#thumb').src = img.src; $('#thumb').hidden = false;
         hint('', true);
@@ -95,7 +96,7 @@
     cv.style.width = w+'px'; cv.style.height = h+'px';
     ctx.setTransform(dpr,0,0,dpr,0,0);
     stage.classList.toggle('rg-zoomed', S.zoom > 1);
-    cv.style.touchAction = S.zoom > 1 ? 'pan-x pan-y' : 'none';   // when zoomed, one finger scrolls the photo
+    cv.style.touchAction = 'none';                 // RoofGlow handles pinch-zoom and panning itself
     view = {k,w,h};
     draw();
   }
@@ -227,27 +228,36 @@
   }
 
   /* ---------- Zoom ---------- */
-  function setZoom(z){
-    z = Math.min(4, Math.max(1, z)); if (z < 1.06) z = 1;
+  const ZMAX = 5;
+  function setZoom(z){                                // buttons and keys zoom around the middle of the view
+    const r = stage.getBoundingClientRect();
+    zoomAt(z, r.left + stage.clientWidth/2, r.top + stage.clientHeight/2);
+  }
+  // Zoom so the photo point under (clientX, clientY) stays put
+  function zoomAt(z, clientX, clientY){
+    z = Math.min(ZMAX, Math.max(1, z)); if (z < 1.04) z = 1;
     if (!S.img || Math.abs(z - S.zoom) < .001) return;
-    // keep the middle of what you're looking at in place
-    const cx = (stage.scrollLeft + stage.clientWidth/2 - cv.offsetLeft) / view.k;
-    const cy = (stage.scrollTop + stage.clientHeight/2 - cv.offsetTop) / view.k;
+    const r = cv.getBoundingClientRect(), ix = (clientX - r.left) / view.k, iy = (clientY - r.top) / view.k;
     S.zoom = z; fit();
-    stage.scrollLeft = cx * view.k + cv.offsetLeft - stage.clientWidth/2;
-    stage.scrollTop = cy * view.k + cv.offsetTop - stage.clientHeight/2;
+    const r2 = cv.getBoundingClientRect();
+    stage.scrollLeft += r2.left + ix * view.k - clientX;
+    stage.scrollTop  += r2.top  + iy * view.k - clientY;
     renderZoom();
   }
   function renderZoom(){
-    $('#zoomVal').textContent = Math.round(S.zoom * 100) + '%';
+    const zb = $('#zoomVal'), pct = Math.round(S.zoom * 100) + '%';
+    zb.textContent = pct; zb.disabled = !S.img || S.zoom <= 1;
+    zb.setAttribute('aria-label', `Zoom ${pct}.` + (S.zoom > 1 ? ' Click to fit the photo' : ''));
     $('#zoomOut').disabled = !S.img || S.zoom <= 1;
-    $('#zoomIn').disabled = !S.img || S.zoom >= 4;
+    $('#zoomIn').disabled = !S.img || S.zoom >= ZMAX;
   }
   $('#zoomIn').onclick = () => setZoom(S.zoom * 1.25);
   $('#zoomOut').onclick = () => setZoom(S.zoom / 1.25);
+  $('#zoomVal').onclick = () => setZoom(1);
   stage.addEventListener('wheel', e => {
-    if (!S.img || !(e.ctrlKey || e.metaKey)) return;     // Ctrl/Cmd + scroll zooms; plain scroll pans
-    e.preventDefault(); setZoom(S.zoom * (e.deltaY < 0 ? 1.15 : 1/1.15));
+    // Ctrl/Cmd + scroll (and trackpad pinch) zooms toward the pointer; plain scroll moves around
+    if (!S.img || !(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault(); zoomAt(S.zoom * Math.exp(-e.deltaY * .0025), e.clientX, e.clientY);
   }, {passive:false});
 
   /* ---------- Fullscreen ---------- */
@@ -325,7 +335,8 @@
     return S.hover;
   }
 
-  function draw(){
+  function draw(){ drawScene(); if (S.img && S.mode === 'crop' && S.crop) drawCrop(); }
+  function drawScene(){
     if (!S.img) return;
     ctx.clearRect(0,0,view.w,view.h);
     ctx.drawImage(S.img,0,0,view.w,view.h);
@@ -374,7 +385,8 @@
     return {x:(e.clientX - r.left)/view.k, y:(e.clientY - r.top)/view.k};
   }
   // A press becomes a click/tap on release, so dragging to pan never drops a stray point
-  let press = null, pan = null, spaceDown = false;
+  let press = null, pan = null, spaceDown = false, pinch = null;
+  const ptrs = new Map();
   function tapAt(p){
     if (S.mode === 'scale'){
       if (S.scalePts.length >= 2){ S.scalePts = []; S.pxPerFt = null; }
@@ -390,31 +402,58 @@
   }
   cv.addEventListener('pointerdown', e => {
     if (!S.img) return;
+    ptrs.set(e.pointerId, {x:e.clientX, y:e.clientY});
+    try { cv.setPointerCapture(e.pointerId); } catch(_){}
+    if (ptrs.size === 2){                              // second finger down: pinch to zoom, drag to move
+      const [a, b] = [...ptrs.values()];
+      pinch = {d: Math.max(20, Math.hypot(a.x-b.x, a.y-b.y)), z: S.zoom, mx: (a.x+b.x)/2, my: (a.y+b.y)/2};
+      press = null; S.drag = S.resize = S.cropDrag = null;
+      return;
+    }
+    if (ptrs.size > 2) return;
     if (document.activeElement !== cv) cv.focus({preventScroll:true});
     if (e.button === 1 || (e.button === 0 && spaceDown && S.zoom > 1)){
       e.preventDefault();
       pan = {x:e.clientX, y:e.clientY, l:stage.scrollLeft, t:stage.scrollTop};
-      try { cv.setPointerCapture(e.pointerId); } catch(_){}
       return;
     }
     if (e.button !== 0) return;
     const p = toImg(e);
-    press = {p, x:e.clientX, y:e.clientY, id:e.pointerId, moved:false, grabbed:false, touch: e.pointerType !== 'mouse'};
-    // decorations can be grabbed right away to move or resize (not while zoomed on touch: then a drag scrolls)
-    if (S.mode === 'decor' && !(press.touch && S.zoom > 1) && !(S.decorKind === 'garland' && S.garland.length)){
+    press = {p, x:e.clientX, y:e.clientY, lx:e.clientX, ly:e.clientY, id:e.pointerId, moved:false, grabbed:false, touch: e.pointerType !== 'mouse'};
+    if (S.mode === 'crop'){ if (cropGrab(p)) press.grabbed = true; return; }
+    // decorations can be grabbed right away to move or resize
+    if (S.mode === 'decor' && !(S.decorKind === 'garland' && S.garland.length)){
       if (decorGrab(p, e)){ press.grabbed = true; update(); }
     }
   });
   cv.addEventListener('pointermove', e => {
     if (!S.img) return;
+    if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, {x:e.clientX, y:e.clientY});
+    if (pinch && ptrs.size >= 2){
+      const [a, b] = [...ptrs.values()], mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
+      zoomAt(pinch.z * Math.hypot(a.x-b.x, a.y-b.y) / pinch.d, mx, my);
+      stage.scrollLeft -= mx - pinch.mx; stage.scrollTop -= my - pinch.my;
+      pinch.mx = mx; pinch.my = my;
+      return;
+    }
     if (pan){ stage.scrollLeft = pan.l - (e.clientX - pan.x); stage.scrollTop = pan.t - (e.clientY - pan.y); return; }
     S.hover = toImg(e);
-    if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > (press.touch ? 12 : 7)) press.moved = true;
-    if (S.drag) decorDragMove(S.hover);
+    if (press && !press.moved && Math.hypot(e.clientX - press.x, e.clientY - press.y) > (press.touch ? 12 : 7)) press.moved = true;
+    if (S.cropDrag) cropMove(S.hover);
+    else if (S.drag) decorDragMove(S.hover);
     else if (S.resize) decorResizeMove(S.hover);
+    else if (press && press.moved && !press.grabbed && S.zoom > 1){
+      // dragging the photo while zoomed in moves around it (a drag is never a tap, so no stray points)
+      stage.scrollLeft -= e.clientX - press.lx; stage.scrollTop -= e.clientY - press.ly;
+    }
+    if (press){ press.lx = e.clientX; press.ly = e.clientY; }
     // show what a press will do here
-    let cur = spaceDown && S.zoom > 1 ? 'grab' : 'crosshair';
-    if (cur === 'crosshair' && S.mode === 'decor' && !S.garland.length){
+    let cur = 'crosshair';
+    if ((spaceDown && S.zoom > 1) || (press && press.moved && !press.grabbed && S.zoom > 1)) cur = press ? 'grabbing' : 'grab';
+    else if (S.mode === 'crop' && S.crop){
+      const h = S.cropDrag ? S.cropDrag.h : cropHandle(S.hover);
+      cur = h ? ({n:'ns-resize', s:'ns-resize', e:'ew-resize', w:'ew-resize', nw:'nwse-resize', se:'nwse-resize', ne:'nesw-resize', sw:'nesw-resize', move:'move'})[h] : (S.zoom > 1 ? 'grab' : 'default');
+    } else if (S.mode === 'decor' && !S.garland.length){
       const hd = S.resize ? {i: 0} : handleAt(S.hover);
       if (hd) cur = (hd.i % 2) ? 'nesw-resize' : 'nwse-resize';
       else if (S.drag || hitDecor(S.hover)) cur = 'move';
@@ -423,20 +462,132 @@
     draw();
   });
   const endDrag = () => { if (S.drag || S.resize){ S.drag = null; S.resize = null; update(); } };
-  cv.addEventListener('pointerup', e => {
+  function ptrEnd(e){
+    ptrs.delete(e.pointerId);
+    if (pinch){ if (ptrs.size < 2) pinch = null; press = null; return; }
     if (pan){ pan = null; return; }
     const pr = press; press = null;
+    if (S.cropDrag){ S.cropDrag = null; draw(); return; }
     if (S.drag || S.resize){ endDrag(); return; }
-    if (pr && !pr.moved && !pr.grabbed && e.pointerId === pr.id) tapAt(pr.p);
-  });
-  cv.addEventListener('pointercancel', () => { press = null; pan = null; endDrag(); });
-  cv.addEventListener('pointerleave', () => { S.hover = null; draw(); });
+    if (e.type === 'pointerup' && pr && !pr.moved && !pr.grabbed && e.pointerId === pr.id && S.mode !== 'crop') tapAt(pr.p);
+  }
+  cv.addEventListener('pointerup', ptrEnd);
+  cv.addEventListener('pointercancel', e => { ptrEnd(e); endDrag(); });
+  cv.addEventListener('pointerleave', () => { if (!press && !pinch){ S.hover = null; draw(); } });
+
+  /* ---------- Crop ---------- */
+  Object.assign(S, {cropStack:[], crop:null, cropDrag:null, prevMode:null});
+  const CROP_MIN = 40;                                 // smallest crop, in photo pixels
+  const clampN = (v, a, b) => Math.min(b, Math.max(a, v));
+  function startCrop(){
+    if (!S.img || S.tainted) return;
+    finishRun();
+    if (S.mode !== 'crop') S.prevMode = S.mode;
+    const W = S.img.naturalWidth, H = S.img.naturalHeight, m = Math.round(Math.min(W, H) * .04);
+    S.crop = {x0:m, y0:m, x1:W-m, y1:H-m};
+    setMode('crop');
+  }
+  function endCrop(){
+    S.crop = null; S.cropDrag = null;
+    const back = S.prevMode && S.prevMode !== 'crop' ? S.prevMode : (S.pxPerFt ? 'trace' : 'scale');
+    setMode(back);
+  }
+  // Which part of the crop frame is under p: n/s/e/w edges, corners, 'move' inside, or null
+  function cropHandle(p){
+    const c = S.crop; if (!c) return null;
+    const t = (coarse ? 22 : 12) / view.k;
+    const inX = p.x > c.x0 - t && p.x < c.x1 + t, inY = p.y > c.y0 - t && p.y < c.y1 + t;
+    let h = '';
+    if (inX && Math.abs(p.y - c.y0) < t) h = 'n'; else if (inX && Math.abs(p.y - c.y1) < t) h = 's';
+    if (inY && Math.abs(p.x - c.x0) < t) h += 'w'; else if (inY && Math.abs(p.x - c.x1) < t) h += 'e';
+    if (!h && p.x > c.x0 && p.x < c.x1 && p.y > c.y0 && p.y < c.y1) h = 'move';
+    return h || null;
+  }
+  function cropGrab(p){
+    const h = cropHandle(p); if (!h) return false;
+    S.cropDrag = {h, p0:p, c0:{...S.crop}};
+    return true;
+  }
+  function cropMove(p){
+    const {h, p0, c0} = S.cropDrag, W = S.img.naturalWidth, H = S.img.naturalHeight;
+    const dx = p.x - p0.x, dy = p.y - p0.y;
+    let {x0, y0, x1, y1} = c0;
+    if (h === 'move'){
+      const w = x1 - x0, hh = y1 - y0;
+      x0 = clampN(x0 + dx, 0, W - w); y0 = clampN(y0 + dy, 0, H - hh); x1 = x0 + w; y1 = y0 + hh;
+    } else {
+      if (h.includes('w')) x0 = clampN(x0 + dx, 0, x1 - CROP_MIN);
+      if (h.includes('e')) x1 = clampN(x1 + dx, x0 + CROP_MIN, W);
+      if (h.includes('n')) y0 = clampN(y0 + dy, 0, y1 - CROP_MIN);
+      if (h.includes('s')) y1 = clampN(y1 + dy, y0 + CROP_MIN, H);
+    }
+    S.crop = {x0, y0, x1, y1};
+  }
+  function drawCrop(){
+    const k = view.k, c = S.crop, x0 = c.x0*k, y0 = c.y0*k, x1 = c.x1*k, y1 = c.y1*k, w = x1 - x0, h = y1 - y0;
+    ctx.save();
+    ctx.fillStyle = 'rgba(5,10,20,.62)';
+    ctx.beginPath(); ctx.rect(0, 0, view.w, view.h); ctx.rect(x0, y0, w, h); ctx.fill('evenodd');
+    ctx.strokeStyle = 'rgba(255,255,255,.45)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 1; i < 3; i++){ ctx.moveTo(x0 + w*i/3, y0); ctx.lineTo(x0 + w*i/3, y1); ctx.moveTo(x0, y0 + h*i/3); ctx.lineTo(x1, y0 + h*i/3); }
+    ctx.stroke();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(x0, y0, w, h);
+    const hs = coarse ? 16 : 11;
+    [[x0,y0],[x1,y0],[x1,y1],[x0,y1],[(x0+x1)/2,y0],[x1,(y0+y1)/2],[(x0+x1)/2,y1],[x0,(y0+y1)/2]].forEach(([x, y]) => {
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#F2B544'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.rect(x - hs/2, y - hs/2, hs, hs); ctx.fill(); ctx.stroke();
+    });
+    ctx.restore();
+  }
+  // Move every traced point and decoration along with the photo
+  function shiftAll(dx, dy){
+    const mv = p => ({x:p.x + dx, y:p.y + dy});
+    S.scalePts = S.scalePts.map(mv); S.current = S.current.map(mv); S.garland = S.garland.map(mv);
+    S.runs.forEach(r => r.pts = r.pts.map(mv));
+    S.decor.forEach(d => { if (d.pts) d.pts = d.pts.map(mv); else { d.x += dx; d.y += dy; } });
+    S.hover = null;
+  }
+  function swapImage(img){
+    S.img = img; S.zoom = 1;
+    $('#thumb').src = img.src; stage.style.height = ''; lastBox = '';
+    fit();
+  }
+  function applyCrop(){
+    const c = S.crop; if (!c) return;
+    const x = Math.round(c.x0), y = Math.round(c.y0), w = Math.round(c.x1 - c.x0), h = Math.round(c.y1 - c.y0);
+    if (x <= 0 && y <= 0 && w >= S.img.naturalWidth - 1 && h >= S.img.naturalHeight - 1){ endCrop(); return; }
+    const out = document.createElement('canvas'); out.width = w; out.height = h;
+    out.getContext('2d').drawImage(S.img, x, y, w, h, 0, 0, w, h);
+    let url;
+    try { url = out.toDataURL('image/jpeg', .93); }
+    catch(_){ hint('This Street View photo can’t be cropped here. Re-frame it with Find by address instead.'); return; }
+    const img = new Image();
+    img.onload = () => {
+      S.cropStack.push({img:S.img, dx:x, dy:y});    // remember the original so it can be restored
+      shiftAll(-x, -y); swapImage(img); endCrop();
+    };
+    img.src = url;
+  }
+  function restoreOriginal(){
+    if (!S.cropStack.length) return;
+    let dx = 0, dy = 0; S.cropStack.forEach(st => { dx += st.dx; dy += st.dy; });
+    const orig = S.cropStack[0].img; S.cropStack = [];
+    shiftAll(dx, dy); swapImage(orig); endCrop();
+  }
+  $('#mCrop').onclick = () => S.mode === 'crop' ? endCrop() : startCrop();
+  $('#cropApply').onclick = applyCrop;
+  $('#cropCancel').onclick = endCrop;
+  $('#cropReset').onclick = restoreOriginal;
 
   function setMode(m){
     S.mode = m;
     $('#mScale').setAttribute('aria-pressed', m==='scale');
     $('#mTrace').setAttribute('aria-pressed', m==='trace');
     $('#addDeco').setAttribute('aria-pressed', m==='decor');
+    $('#mCrop').setAttribute('aria-pressed', m==='crop');
+    $('#cropbar').classList.toggle('rg-show', m === 'crop');
+    if (m !== 'crop'){ S.crop = null; S.cropDrag = null; }
     root.querySelectorAll('#rg-decoPick button').forEach(b => b.setAttribute('aria-pressed', m === 'decor' && b.dataset.kind === S.decorKind));
     if (m !== 'scale') $('#scaleform').classList.remove('rg-show');
     else if (S.scalePts.length === 2 && !S.pxPerFt) $('#scaleform').classList.add('rg-show');
@@ -477,6 +628,7 @@
   cv.addEventListener('keydown', e => {
     if (!S.img) return;
     if (e.key === ' '){ e.preventDefault(); if (!spaceDown){ spaceDown = true; cv.style.cursor = S.zoom > 1 ? 'grab' : cv.style.cursor; } return; }
+    if (S.mode === 'crop' && (e.key === 'Enter' || e.key === 'Escape')){ e.preventDefault(); e.key === 'Enter' ? applyCrop() : endCrop(); return; }
     if (e.key === 'Enter'){ e.preventDefault(); finishRun(); }
     else if (e.key === 'Escape'){
       if (ws.classList.contains('rg-full') && !S.current.length && !S.garland.length && !S.selDecor){ setFull(false); return; }
@@ -502,7 +654,7 @@
     S.img = null; S.runs = []; S.current = []; S.scalePts = []; S.pxPerFt = null;
     S.decor = []; S.garland = []; S.selDecor = null;
     if (S.mode === 'decor') S.mode = 'scale';
-    S.zoom = 1; stage.style.height = '';
+    S.zoom = 1; stage.style.height = ''; S.cropStack = []; S.crop = null;
     cv.hidden = true; empty.hidden = false; $('#thumb').hidden = true;
     update();
     root.scrollIntoView({behavior:'smooth', block:'start'});
@@ -1252,6 +1404,7 @@
     });
     root.querySelectorAll('#rg-decoPick button').forEach(b => b.setAttribute('aria-pressed', false));
     S.zoom = 1; S.menu = null; S.renaming = null; stage.style.height = ''; setFull(false);
+    S.cropStack = []; S.crop = null; S.cropDrag = null; $('#cropbar').classList.remove('rg-show'); $('#mCrop').setAttribute('aria-pressed', false);
     $('#thumb').hidden = true; $('#manual').hidden = true; $('#runToggle').setAttribute('aria-expanded', false);
     $('#addDeco').setAttribute('aria-pressed', false);
     cv.hidden = true; empty.hidden = false;
@@ -1478,6 +1631,9 @@
   function update(){
     const has = !!S.img, cal = !!S.pxPerFt;
     ['#mScale','#mTrace','#addDeco','#full'].forEach(id => $(id).disabled = !has);
+    $('#mCrop').disabled = !has || S.tainted;
+    $('#mCrop').title = S.tainted ? 'This Street View photo can’t be cropped. Re-frame it with Find by address.' : '';
+    $('#cropReset').hidden = !S.cropStack.length;
     root.querySelectorAll('#rg-decoPick button').forEach(b => b.disabled = !has);
     $('#undo').disabled = !(S.current.length || S.runs.length || S.scalePts.length || S.garland.length || (S.mode === 'decor' && S.decor.length));
     $('#clear').disabled = !(S.current.length || S.runs.length);
@@ -1499,7 +1655,9 @@
     // One short instruction for the active tool
     const act = coarse ? 'Tap' : 'Click', act2 = coarse ? 'tap' : 'click';
     if (!has) hint('');
-    else if (S.mode === 'scale'){
+    else if (S.mode === 'crop'){
+      hint(`Drag the corners or edges to crop, or drag inside to move the frame. ${coarse ? 'Pinch' : 'Use + and −'} to zoom.`);
+    } else if (S.mode === 'scale'){
       hint(S.scalePts.length < 2
         ? `${act} the top and bottom of a door frame (80 in), or any length you know.`
         : 'Enter the real length of the red line, then Apply.');
