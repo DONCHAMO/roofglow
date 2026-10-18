@@ -58,17 +58,21 @@
     const r = new FileReader();
     r.onload = () => {
       const img = new Image();
-      img.onload = () => {
+      img.onload = () => useImage(img, 'upload');
+      img.src = r.result;
+    };
+    r.readAsDataURL(file);
+  }
+  // source: 'upload' or 'streetview'. A Street View image may be "tainted" if Google
+  // doesn't allow pixel access; RoofGlow then uses simpler fallbacks (see nightBase / download).
+  function useImage(img, source){
+        S.source = source; S.tainted = !!img.rgTainted;
         S.img = img; S.scalePts = []; S.pxPerFt = null; S.runs = []; S.current = [];
         S.decor = []; S.garland = []; S.selDecor = null; S.drag = null; S.zoom = 1;
         empty.hidden = true; cv.hidden = false;
         $('#thumb').src = img.src; $('#thumb').hidden = false;
         hint('', true);
         setMode('scale'); fit(); update();
-      };
-      img.src = r.result;
-    };
-    r.readAsDataURL(file);
   }
   $('#file').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value=''; });
   ['dragenter','dragover'].forEach(t => stage.addEventListener(t, e => { e.preventDefault(); empty.classList.add('rg-drag'); }));
@@ -100,6 +104,127 @@
     const key = ws.clientWidth + '|' + (isFull() ? stage.clientHeight : 0);
     if (key !== lastBox){ lastBox = key; fit(); }
   }).observe(ws);
+
+  /* ---------- Find by address (Google Street View) ----------
+     Needs a Google Maps API key in the embed (data-rg-gmaps-key) with the
+     Maps JavaScript API, Geocoding API and Street View Static API enabled. */
+  const GKEY = ((root.dataset.rgGmapsKey || '').trim()).replace(/^YOUR-GOOGLE-MAPS-API-KEY$/, '');
+  let gmapsP = null, svPano = null, svDlg = null;
+  function loadGmaps(){
+    if (window.google && google.maps && google.maps.importLibrary) return Promise.resolve();
+    if (gmapsP) return gmapsP;
+    gmapsP = new Promise((res, rej) => {
+      window.__rgGmapsReady = () => res();
+      window.gm_authFailure = () => svMsg('Google rejected the API key. Check the key and that its website restriction includes this site.', true);
+      const sc = document.createElement('script');
+      sc.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GKEY)}&v=weekly&loading=async&callback=__rgGmapsReady`;
+      sc.async = true;
+      sc.onerror = () => { gmapsP = null; rej(new Error('load')); };
+      document.head.appendChild(sc);
+    });
+    return gmapsP;
+  }
+  // The dialog lives on <body>, outside #roofglow, so RoofGlow's styles don't restyle Google's controls
+  function svDialog(){
+    if (svDlg) return svDlg;
+    svDlg = document.createElement('dialog');
+    svDlg.id = 'roofglow-sv'; svDlg.setAttribute('aria-labelledby', 'rg-svTitle');
+    svDlg.innerHTML = `
+      <div class="rgsv-head"><h2 id="rg-svTitle">Find by address</h2>
+        <button type="button" class="rgsv-btn rgsv-close" id="rg-svClose" aria-label="Close">✕</button></div>
+      <div class="rgsv-search">
+        <input type="text" class="rgsv-input" id="rg-svAddr" placeholder="Street address, town, state" autocomplete="street-address" aria-label="Address">
+        <button type="button" class="rgsv-btn" id="rg-svGo">Find</button>
+      </div>
+      <p class="rgsv-msg" id="rg-svMsg" aria-live="polite"></p>
+      <div class="rgsv-view" id="rg-svView"></div>
+      <div class="rgsv-foot">
+        <p class="rgsv-tip">Drag to look around, click the arrows to move along the street, and scroll or pinch to zoom. Frame the house, then use this view.</p>
+        <button type="button" class="rgsv-btn" id="rg-svUse" disabled>Use this view</button>
+      </div>`;
+    document.body.appendChild(svDlg);
+    $('#svClose').onclick = () => svDlg.close();
+    svDlg.addEventListener('click', e => { if (e.target === svDlg) svDlg.close(); });
+    $('#svGo').onclick = svFind;
+    $('#svAddr').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); svFind(); } });
+    $('#svUse').onclick = svUse;
+    return svDlg;
+  }
+  function svMsg(t, err){ const m = $('#svMsg'); if (!m) return; m.textContent = t; m.classList.toggle('rgsv-err', !!err); }
+  function openSv(){
+    svDialog();
+    if (typeof svDlg.showModal === 'function') svDlg.showModal(); else svDlg.setAttribute('open', '');
+    if (!GKEY){
+      svMsg('Address search needs a Google Maps API key. Add it to the RoofGlow embed (data-rg-gmaps-key). The README explains how.', true);
+      $('#svGo').disabled = true; $('#svAddr').disabled = true; return;
+    }
+    $('#svAddr').focus();
+  }
+  $('#svOpen').onclick = $('#svOpen2').onclick = openSv;
+  // compass direction from the camera to the house
+  function bearing(a, b){
+    const r = Math.PI / 180, p1 = a.lat()*r, p2 = b.lat()*r, dl = (b.lng() - a.lng())*r;
+    const y = Math.sin(dl)*Math.cos(p2), x = Math.cos(p1)*Math.sin(p2) - Math.sin(p1)*Math.cos(p2)*Math.cos(dl);
+    return (Math.atan2(y, x) / r + 360) % 360;
+  }
+  async function svFind(){
+    const addr = $('#svAddr').value.trim(); if (!addr) { $('#svAddr').focus(); return; }
+    svMsg('Searching…'); $('#svGo').disabled = true; $('#svUse').disabled = true;
+    try {
+      try { await loadGmaps(); } catch(_){ svMsg('Couldn’t load Google Maps. Check your internet connection and that the Maps JavaScript API is enabled for your key.', true); return; }
+      const {Geocoder} = await google.maps.importLibrary('geocoding');
+      const sv = await google.maps.importLibrary('streetView');
+      let geo;
+      try { geo = await new Geocoder().geocode({address: addr}); } catch(_){ geo = null; }
+      if (!geo || !geo.results || !geo.results.length){ svMsg('That address wasn’t found. Try adding the town and state.', true); return; }
+      const house = geo.results[0].geometry.location;
+      let data = null;
+      for (const radius of [50, 120]){                 // nearest outdoor photo first, then a bit farther
+        try { data = (await new sv.StreetViewService().getPanorama({location: house, radius,
+          preference: sv.StreetViewPreference.NEAREST, sources: [sv.StreetViewSource.OUTDOOR]})).data; break; } catch(_){}
+      }
+      if (!data){ svMsg('There’s no Street View photo near that address. You can still upload your own photo.', true); return; }
+      if (!svPano) svPano = new sv.StreetViewPanorama($('#svView'), {
+        addressControl:false, fullscreenControl:false, motionTracking:false, motionTrackingControl:false,
+        showRoadLabels:false, enableCloseButton:false, linksControl:true, panControl:false, zoomControl:true});
+      svPano.setPano(data.location.pano);
+      svPano.setPov({heading: bearing(data.location.latLng, house), pitch: 6});
+      svPano.setZoom(1);
+      svPano.setVisible(true);
+      svMsg(`${geo.results[0].formatted_address}. Aim and zoom so the whole roofline fits, then use this view.`);
+      $('#svUse').disabled = false;
+    } finally { $('#svGo').disabled = false; }
+  }
+  // Load Google's still image of exactly what the viewer shows
+  function loadRemote(url){
+    return new Promise((res, rej) => {
+      const a = new Image(); a.crossOrigin = 'anonymous';
+      a.onload = () => res(a);
+      a.onerror = () => {                              // no CORS from Google: load it "tainted" instead
+        const b = new Image(); b.onload = () => { b.rgTainted = true; res(b); }; b.onerror = rej; b.src = url;
+      };
+      a.src = url;
+    });
+  }
+  async function svUse(){
+    if (!svPano) return;
+    const pov = svPano.getPov(), z = svPano.getZoom() || 1;
+    const fov = Math.max(20, Math.min(120, 180 / Math.pow(2, z)));
+    const el = $('#svView'), ratio = el.clientHeight / Math.max(1, el.clientWidth);
+    const w = 640, h = Math.max(360, Math.min(640, Math.round(640 * ratio)));   // Google's largest size is 640 px
+    const url = 'https://maps.googleapis.com/maps/api/streetview?size=' + w + 'x' + h +
+      '&pano=' + encodeURIComponent(svPano.getPano()) + '&heading=' + pov.heading.toFixed(2) + '&pitch=' + pov.pitch.toFixed(2) +
+      '&fov=' + fov.toFixed(1) + '&return_error_code=true&source=outdoor&key=' + encodeURIComponent(GKEY);
+    svMsg('Loading the photo…'); $('#svUse').disabled = true;
+    try {
+      const img = await loadRemote(url);
+      svDlg.close();
+      useImage(img, 'streetview');
+      ws.scrollIntoView({behavior:'smooth', block:'start'});
+    } catch(_){
+      svMsg('Google didn’t return a photo. Check that the Street View Static API is enabled for your key.', true);
+    } finally { $('#svUse').disabled = false; }
+  }
 
   /* ---------- Zoom ---------- */
   function setZoom(z){
@@ -219,6 +344,7 @@
 
     S.runs.forEach(r => drawRun(r.pts, strOf(r.sid).color, false));
     drawDecorations();
+    if (S.source === 'streetview') credit(ctx, view.w, view.h);
     if (S.current.length){
       const color = strOf(S.active).color;
       drawRun(S.current, color, true);
@@ -230,6 +356,16 @@
         if (S.pxPerFt) label(fmt(segFt(S.current[S.current.length-1], hp)), b.x, b.y - 6, '#FFD27A');
       }
     }
+  }
+
+  // Google requires its attribution on Street View imagery
+  function credit(g, W, H){
+    g.save(); g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
+    const fs = Math.max(10, Math.min(14, W * .014));
+    g.font = `600 ${fs}px Inter, Arial, sans-serif`; g.textBaseline = 'bottom';
+    g.shadowColor = 'rgba(0,0,0,.85)'; g.shadowBlur = 3; g.fillStyle = '#fff';
+    g.fillText('Street View © Google', fs * .7, H - fs * .5);
+    g.restore();
   }
 
   /* ---------- Interaction ---------- */
@@ -830,7 +966,20 @@
     for (let xx=0; xx<W; xx++) if (limit[xx] < 0) limit[xx] = fallback;
     const fade = H * 0.04;
 
-    const d = x.getImageData(0, 0, W, H), a = d.data;
+    let d;
+    try { d = x.getImageData(0, 0, W, H); }
+    catch(_){
+      // Pixel access blocked (Street View without CORS): tint with blend modes instead
+      x.globalCompositeOperation = 'multiply';
+      x.fillStyle = `rgb(${[38,50,92].map(v => Math.round(255 + (v - 255) * dark))})`; x.fillRect(0, 0, W, H);
+      x.globalCompositeOperation = 'source-over';
+      const sky = x.createLinearGradient(0, 0, 0, Math.min(H, fallback));
+      sky.addColorStop(0, `rgba(8,14,34,${.55 * dark})`); sky.addColorStop(1, 'rgba(8,14,34,0)');
+      x.fillStyle = sky; x.fillRect(0, 0, W, H);
+      P.base = c; P.baseKey = key;
+      return c;
+    }
+    const a = d.data;
     const desat = 0.6*dark, gam = 1 + 0.9*dark, gain = 1 - 0.48*dark;
     const tr = 1 - 0.30*dark, tg = 1 - 0.17*dark, tb = 1 + 0.12*dark;
     const NR = 0.03, NG = 0.05, NB = 0.13;
@@ -1046,6 +1195,7 @@
     }
     pg.globalAlpha = 1;
     drawWatermark(pg, W, H);
+    if (S.source === 'streetview') credit(pg, W, H);
   }
 
   const animating = () => P.ready && P.visible && $('#pvMotion').checked && (num('#pvSnow') > 0 || $('#pvFx').value !== 'steady' || P.hasSpritz);
@@ -1079,6 +1229,10 @@
   ['#pvFx','#pvMotion'].forEach(id => $(id).addEventListener('change', kick));
   $('#pvLook').addEventListener('change', e => { $('#look').value = e.target.value; update(); });
   $('#pvDownload').onclick = () => {
+    if (S.tainted){
+      alert('Google doesn’t allow this Street View image to be saved from the browser. Take a screenshot of the preview instead.');
+      return;
+    }
     pvC.toBlob(blob => {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob); a.download = 'christmas-lights-preview.jpg';
@@ -1093,7 +1247,7 @@
     Object.assign(S, {
       img:null, mode:'scale', scalePts:[], pxPerFt:null,
       strings:[{id:1,name:'First floor',color:COLORS[0]}], active:1, nextId:2,
-      runs:[], current:[], hover:null, manual:[], photoCount:0,
+      runs:[], current:[], hover:null, manual:[], photoCount:0, source:null, tainted:false,
       decor:[], decorSaved:[], garland:[], selDecor:null, decorKind:'wreath', drag:null, resize:null
     });
     root.querySelectorAll('#rg-decoPick button').forEach(b => b.setAttribute('aria-pressed', false));
