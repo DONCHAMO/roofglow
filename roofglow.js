@@ -746,7 +746,8 @@
     S.photoCount++;
     S.runs.forEach((r,i) => S.manual.push({name:`Photo ${S.photoCount}, run ${i+1}`, feet: polyFt(r.pts), sid:r.sid}));
     S.decor.forEach(d => S.decorSaved.push({kind:d.kind, size:d.size, len: d.kind === 'garland' ? garlandFt(d) : null,
-      bulbs: d.kind === 'bush' ? miniBulbs(d) : null, strand: d.strand}));
+      bulbs: d.kind === 'bush' ? miniBulbs(d) : null, strands: d.kind === 'bush' ? miniStrands(d) : null,
+      feet: d.kind === 'bush' && miniFeet(d) ? miniFeet(d).total : null}));
     S.img = null; S.runs = []; S.current = []; S.scalePts = []; S.pxPerFt = null;
     S.decor = []; S.garland = []; S.selDecor = null;
     if (S.mode === 'decor') S.mode = 'scale';
@@ -771,14 +772,14 @@
     sleigh:     {name:'Santa sleigh',      one:'Santa sleigh',      plural:'Santa sleighs',      min:12, max:120, size:48, sizeLabel:'Height', wire:true},
     snowflake:  {name:'Snowflake',         one:'snowflake',         plural:'snowflakes',         min:12, max:120, size:36, sizeLabel:'Height', wire:true},
     // 5mm mini lights filling an outlined bush or tree
-    bush:       {name:'Mini lights',       one:'mini light area',   plural:'mini light areas',   min:0,  max:0,   size:0,  sizeLabel:'Density'}
+    bush:       {name:'Mini lights',       one:'mini light area',   plural:'mini light areas',   min:3,  max:24,  size:8,  sizeLabel:'Row spacing'}
   };
   const isWire = k => !!(DECOR[k] && DECOR[k].wire);
   const isPath = k => k === 'garland' || k === 'bush';        // placed by clicking points
-  // Mini lights: bulbs per square foot of outlined area (front view), and strand sizes
-  const MINI_DENSITY = {light:20, medium:35, heavy:50};
-  const MINI_STRANDS = [50, 70, 100];
-  const MINI_WATTS = .07;                                        // a typical 5mm LED mini bulb
+  // Mini lights: your 5mm strand. Change these if your product changes.
+  const MINI = {bulbs: 50, spacingIn: 6, lengthFt: 25, watts: .07};
+  // How far a row really runs compared with what you see from the street
+  const MINI_WRAP = {around: {label: 'All the way around', x: Math.PI}, front: {label: 'Front only', x: 1}};
   const COLOR_NAMES = {warm:'Warm white', pure:'Pure white', candy:'Candy cane', multi:'Multicolor'};
   Object.assign(S, {decor:[], decorSaved:[], garland:[], selDecor:null, decorKind:'wreath', nextDecor:1, drag:null, resize:null});
   const clampSize = (d, v) => Math.round(Math.min(DECOR[d.kind].max, Math.max(DECOR[d.kind].min, v)));
@@ -984,18 +985,42 @@
     }
     return c;
   }
-  const miniSqFt = d => S.pxPerFt ? polyArea(d.pts) / (S.pxPerFt * S.pxPerFt) : null;
-  const miniBulbs = d => { const a = miniSqFt(d); return a == null ? null : Math.max(1, Math.round(a * MINI_DENSITY[d.density || 'medium'])); };
-  function miniDots(d){
-    const area = polyArea(d.pts); if (area < 4) return [];
-    const want = Math.min(900, miniBulbs(d) || Math.round(area / 120)), s = Math.sqrt(area / Math.max(1, want));
-    const xs = d.pts.map(p => p.x), ys = d.pts.map(p => p.y), out = [];
-    let n = 0;
-    for (let y = Math.min(...ys) + s/2; y < Math.max(...ys); y += s)
-      for (let x = Math.min(...xs) + s/2; x < Math.max(...xs); x += s, n++){
-        const p = {x: x + (drand(d, n) - .5) * s * .9, y: y + (drand(d, n + 5e4) - .5) * s * .9};
-        if (inPoly(p, d.pts)) out.push(p);
+  // Horizontal rows across the outline, rowIn inches apart; returns each row's inside segments (photo px)
+  function miniRows(d){
+    const ys = d.pts.map(p => p.y), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    const s = S.pxPerFt ? (d.rowIn || 8) / 12 * S.pxPerFt : 12 * (d.rowIn || 8) / 8;
+    const rows = [];
+    for (let y = y0 + s/2, ri = 0; y < y1; y += s, ri++){
+      const xs = [];
+      for (let i = 0, j = d.pts.length - 1; i < d.pts.length; j = i++){
+        const a = d.pts[i], b = d.pts[j];
+        if ((a.y > y) !== (b.y > y)) xs.push(a.x + (y - a.y) * (b.x - a.x) / (b.y - a.y));
       }
+      xs.sort((p, q) => p - q);
+      for (let k = 0; k + 1 < xs.length; k += 2) rows.push({y, x0: xs[k], x1: xs[k+1], ri});
+    }
+    return {rows, s};
+  }
+  // Feet of light run: what's visible across the front, and the real length with the wrap
+  function miniFeet(d){
+    if (!S.pxPerFt) return null;
+    const front = miniRows(d).rows.reduce((a, r) => a + (r.x1 - r.x0), 0) / S.pxPerFt;
+    return {front, total: front * (MINI_WRAP[d.wrap || 'around'] || MINI_WRAP.around).x};
+  }
+  const miniBulbs = d => { const f = miniFeet(d); return f == null ? null : Math.round(f.total * 12 / MINI.spacingIn); };
+  const miniStrands = d => { const f = miniFeet(d); return f == null ? null : Math.max(1, Math.ceil(f.total / MINI.lengthFt)); };
+  // Bulb positions along each visible row, 6 in apart, with a slight natural wave
+  function miniDots(d){
+    const {rows, s} = miniRows(d), out = [];
+    const step = S.pxPerFt ? MINI.spacingIn / 12 * S.pxPerFt : 8;
+    rows.forEach(r => {
+      const len = r.x1 - r.x0; if (len < step * .5) return;
+      const n = Math.max(1, Math.floor(len / step)), start = r.x0 + (len - (n - 1) * step) / 2;
+      for (let i = 0; i < n; i++){
+        const x = start + i * step;
+        out.push({x, y: r.y + s * .12 * Math.sin(x / Math.max(1, s) * 1.3 + r.ri * 1.7)});
+      }
+    });
     return out;
   }
 
@@ -1042,7 +1067,7 @@
       decorBody(ctx, d, k, 1);
       const pal = LOOKS[d.color] || LOOKS.warm, r = Math.max(1.1, Math.min(2.4, dPx(d)*k*.012));
       if (d.kind === 'bush'){
-        const mr = Math.max(.9, Math.min(1.6, k * 1.2));
+        const mr = Math.max(1.2, Math.min(2.4, k * 1.6));
         decorLights(d).forEach((p, i) => { ctx.fillStyle = pal[i % pal.length]; ctx.beginPath(); ctx.arc(p.x*k, p.y*k, mr, 0, Math.PI*2); ctx.fill(); });
       } else if (d.kind !== 'wreath' && d.kind !== 'bow' && !isWire(d.kind)) decorLights(d).forEach((p, i) => {
         ctx.fillStyle = pal[i % pal.length]; ctx.beginPath(); ctx.arc(p.x*k, p.y*k, r, 0, Math.PI*2); ctx.fill();
@@ -1108,7 +1133,7 @@
     const seed = Math.floor(Math.random()*1e6);
     if (S.decorKind === 'bush'){
       if (S.garland.length >= 3){
-        const d = {id:S.nextDecor++, kind:'bush', pts:S.garland, size:0, density:'medium', strand:70, color:'warm', seed};
+        const d = {id:S.nextDecor++, kind:'bush', pts:S.garland, size:0, rowIn:DECOR.bush.size, wrap:'around', color:'warm', seed};
         S.decor.push(d); S.selDecor = d.id;
       }
     } else if (S.garland.length >= 2){
@@ -1221,7 +1246,8 @@
       li.className = 'rg-drow' + (sel ? ' rg-sel' : '');
       const gl = d.kind === 'garland' ? garlandFt(d) : null;
       const bulbs = d.kind === 'bush' ? miniBulbs(d) : null;
-      const sizeText = d.kind === 'bush' ? (bulbs == null ? 'set scale for count' : `≈ ${bulbs.toLocaleString()} bulbs`)
+      const miniText = () => { const b = miniBulbs(d); return b == null ? 'set scale for count' : `≈ ${b.toLocaleString()} bulbs · ${miniStrands(d)} strand${miniStrands(d) === 1 ? '' : 's'}`; };
+      const sizeText = d.kind === 'bush' ? miniText()
                      : (gl != null ? fmt(gl) + ' · ' : '') + `${d.size} in`;
       const colOpts = Object.keys(COLOR_NAMES).map(c => `<option value="${c}"${c===d.color?' selected':''}>${COLOR_NAMES[c]}</option>`).join('');
       li.innerHTML = `<div class="rg-drowmain">
@@ -1229,9 +1255,15 @@
           <span class="rg-dsize">${sizeText}</span>
           <button type="button" class="rg-x" aria-label="Remove ${info.name} ${n}">✕</button>
         </div>` + (sel && d.kind === 'bush' ? `<div class="rg-deditor">
-          <label>Density<select data-f="density">${Object.keys(MINI_DENSITY).map(k => `<option value="${k}"${k === d.density ? ' selected' : ''}>${k[0].toUpperCase() + k.slice(1)} (${MINI_DENSITY[k]}/sq ft)</option>`).join('')}</select></label>
-          <label>Strand<select data-f="strand">${MINI_STRANDS.map(n => `<option value="${n}"${n === d.strand ? ' selected' : ''}>${n} bulbs</option>`).join('')}</select></label>
+          <label class="rg-sizectl">Space between rows <b class="rg-sizeval">${d.rowIn} in</b>
+            <span class="rg-sizerow">
+              <button type="button" class="rg-step" data-step="-1" aria-label="Rows closer together">−</button>
+              <input type="range" min="${info.min}" max="${info.max}" step="1" value="${d.rowIn}" aria-label="Space between rows in inches">
+              <button type="button" class="rg-step" data-step="1" aria-label="Rows farther apart">+</button>
+            </span></label>
+          <label>Wrap<select data-f="wrap">${Object.keys(MINI_WRAP).map(k => `<option value="${k}"${k === (d.wrap || 'around') ? ' selected' : ''}>${MINI_WRAP[k].label}</option>`).join('')}</select></label>
           <label>Lights<select data-f="color">${colOpts}</select></label>
+          <p class="rg-dnote">${MINI.bulbs} lights, ${MINI.spacingIn} in apart, ${MINI.lengthFt} ft per strand${miniFeet(d) ? ` · ${fmt(miniFeet(d).total)} of light run` : ''}</p>
         </div>` : sel ? `<div class="rg-deditor">
           <label class="rg-sizectl">${info.sizeLabel} <b class="rg-sizeval">${d.size} in</b>
             <span class="rg-sizerow">
@@ -1248,14 +1280,19 @@
       if (sel){
         const rng = li.querySelector('input[type=range]'), val = li.querySelector('.rg-sizeval'), sz = li.querySelector('.rg-dsize');
         // live resize while sliding, without rebuilding the list (that would interrupt the slider)
+        const fld = d.kind === 'bush' ? 'rowIn' : 'size';
         if (rng) rng.oninput = () => {
-          d.size = +rng.value; val.textContent = `${d.size} in`;
-          sz.textContent = (d.kind === 'garland' ? fmt(garlandFt(d)) + ' · ' : '') + `${d.size} in`;
+          d[fld] = +rng.value; val.textContent = `${d[fld]} in`;
+          sz.textContent = d.kind === 'bush' ? miniText() : (d.kind === 'garland' ? fmt(garlandFt(d)) + ' · ' : '') + `${d.size} in`;
           draw(); schedulePreview(); renderDecorSum();
         };
         if (rng) rng.onchange = () => { pick(); update(); };
-        li.querySelectorAll('.rg-step').forEach(b => b.onclick = () => { pick(); resizeBy(d, +b.dataset.step); });
-        li.querySelectorAll('select').forEach(sel => sel.onchange = () => { d[sel.dataset.f] = sel.dataset.f === 'strand' ? +sel.value : sel.value; pick(); update(); });
+        li.querySelectorAll('.rg-step').forEach(b => b.onclick = () => {
+          pick();
+          if (d.kind === 'bush'){ d.rowIn = Math.min(info.max, Math.max(info.min, d.rowIn + +b.dataset.step)); update(); }
+          else resizeBy(d, +b.dataset.step);
+        });
+        li.querySelectorAll('select').forEach(sel => sel.onchange = () => { d[sel.dataset.f] = sel.value; pick(); update(); });
       }
       ul.appendChild(li);
     });
@@ -1269,7 +1306,8 @@
   /* Counts for the results card and copied summary */
   function decorSummary(){
     const all = [...S.decor.map(d => ({kind:d.kind, size:d.size, len: d.kind === 'garland' ? garlandFt(d) : null,
-                   bulbs: d.kind === 'bush' ? miniBulbs(d) : null, strand: d.strand})), ...S.decorSaved];
+                   bulbs: d.kind === 'bush' ? miniBulbs(d) : null, strands: d.kind === 'bush' ? miniStrands(d) : null,
+                   feet: d.kind === 'bush' && miniFeet(d) ? miniFeet(d).total : null})), ...S.decorSaved];
     if (!all.length) return '';
     const parts = [];
     Object.keys(DECOR).filter(k => !isPath(k)).forEach(kind => {
@@ -1284,10 +1322,9 @@
     if (minis.length){
       if (minis.some(x => x.bulbs == null)) parts.push('mini lights (set the scale for a bulb count)');
       else {
-        const bulbs = minis.reduce((a, x) => a + x.bulbs, 0), byStrand = {};
-        minis.forEach(x => byStrand[x.strand] = (byStrand[x.strand] || 0) + Math.ceil(x.bulbs / x.strand));
-        const strands = Object.keys(byStrand).map(n => `${byStrand[n]} × ${n}-bulb strands`).join(' + ');
-        parts.push(`≈ ${bulbs.toLocaleString()} mini lights (${strands}, about ${Math.round(bulbs * MINI_WATTS)} W)`);
+        const bulbs = minis.reduce((a, x) => a + x.bulbs, 0), strands = minis.reduce((a, x) => a + x.strands, 0);
+        const feet = minis.reduce((a, x) => a + (x.feet || 0), 0);
+        parts.push(`≈ ${bulbs.toLocaleString()} mini lights on ${strands} strand${strands === 1 ? '' : 's'} of ${MINI.bulbs} (${fmt(feet)} of light run, about ${Math.round(bulbs * MINI.watts)} W)`);
       }
     }
     return parts.join(', ');
@@ -1515,7 +1552,7 @@
           tg.drawImage(S.img, bx / r, by / r, bw / r, bh / r, 0, 0, bw, bh);
           tg.globalCompositeOperation = 'multiply'; tg.fillStyle = `rgb(${Math.round(gr0*.75)},${Math.round(gg0*.6)},${Math.round(gb0*.4)})`; tg.fillRect(0, 0, bw, bh);
           g.save(); g.beginPath(); d.pts.forEach((p,i) => i ? g.lineTo(p.x*r, p.y*r) : g.moveTo(p.x*r, p.y*r)); g.closePath(); g.clip();
-          g.globalCompositeOperation = 'lighter'; g.globalAlpha = Math.min(1, .55 * glow * {light:.7, medium:1, heavy:1.25}[d.density || 'medium']);
+          g.globalCompositeOperation = 'lighter'; g.globalAlpha = Math.min(1, .45 * glow * Math.min(1.4, 8 / (d.rowIn || 8)));
           g.drawImage(t, bx, by); g.restore(); g.globalAlpha = 1;
         }
       }
@@ -1537,7 +1574,7 @@
           ph: rand(d.seed) * 6.283, sp: .5 + rand(d.seed + 9) * .5, k: 1, idx: di * 3});
       }
       const lights = decorLights(d);
-      const cr = d.kind === 'bush' ? Math.max(.8, Math.min(1.5, W / 1300))
+      const cr = d.kind === 'bush' ? Math.max(1, Math.min(2, W / 1000))
                : d.kind === 'garland' ? Math.min(Math.max(size * .08, 1.1), 3)
                : d.kind === 'spritzer' ? Math.min(Math.max(size * .011, 1), 2.6)
                : d.kind === 'bow' ? Math.min(Math.max(size * .012, 1), 2.6)
