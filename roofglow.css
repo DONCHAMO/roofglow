@@ -203,6 +203,8 @@
 
 /* Decorations */
 #roofglow .rg-tiles{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.5rem}
+#roofglow .rg-dcat{font-size:.75rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--rg-muted); margin:.85rem 0 .45rem}
+#roofglow .rg-decopick .rg-dcat:first-child{margin-top:.2rem}
 #roofglow button.rg-tile{flex-direction:column; gap:.35rem; padding:0; border:0; background:none; min-height:0; font-weight:500; font-size:.78rem; color:var(--rg-ink2)}
 #roofglow button.rg-tile:hover:not(:disabled){border-color:transparent}
 #roofglow .rg-tileimg{display:grid; place-items:center; width:100%; aspect-ratio:1; border:1px solid var(--rg-line2); border-radius:10px; background:var(--rg-panel); padding:5px; overflow:hidden; transition:border-color .15s, box-shadow .15s}
