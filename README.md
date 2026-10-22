@@ -18,16 +18,16 @@ Webflow's Assets panel doesn't accept `.css` or `.js` files, and the JavaScript 
 1. Create a free account at github.com if you don't have one.
 2. Click **New repository**. Name it exactly `roofglow`, set it to **Public**, and click **Create repository**. jsDelivr can only serve files from public repositories.
 3. On the new repository page, click **uploading an existing file**. Drag in `roofglow.css`, `roofglow.js`, and this README, then click **Commit changes**.
-4. Create a version tag. On the repository page, click **Releases**, then **Create a new release**. Under **Choose a tag**, type `2.7.0`, choose **Create new tag**, and click **Publish release**.
+4. Create a version tag. On the repository page, click **Releases**, then **Create a new release**. Under **Choose a tag**, type `2.8.0`, choose **Create new tag**, and click **Publish release**.
 
 Your files are now available at:
 
 ```
-https://cdn.jsdelivr.net/gh/YOUR-GITHUB-USERNAME/roofglow@2.7.0/roofglow.css
-https://cdn.jsdelivr.net/gh/YOUR-GITHUB-USERNAME/roofglow@2.7.0/roofglow.js
+https://cdn.jsdelivr.net/gh/YOUR-GITHUB-USERNAME/roofglow@2.8.0/roofglow.css
+https://cdn.jsdelivr.net/gh/YOUR-GITHUB-USERNAME/roofglow@2.8.0/roofglow.js
 ```
 
-Open both links in your browser, with your username in place. Each should show the file's code. If you see an error, check that the repository is public and the tag is exactly `2.7.0`.
+Open both links in your browser, with your username in place. Each should show the file's code. If you see an error, check that the repository is public and the tag is exactly `2.8.0`.
 
 ## Step 2: Prepare the embed code
 
@@ -88,6 +88,39 @@ Notes:
 
 Click **Measure on satellite map** (in Light strings) or **Measure on map** (in the empty photo area). It uses the same Google Maps API key as Find by address, and needs no additional APIs. Find the address, click along each roof edge, then double-click or press **Finish line**. Drag a line's points to adjust it. Mark rakes and other sloped edges as **Sloped** and choose the roof pitch: a satellite looks straight down, so sloped edges appear shorter than they are, and RoofGlow corrects for the pitch (a 6/12 slope is about 12% longer than it looks from above). **Add to estimate** adds the lines as runs on the selected string. Each map opening is a Google Maps load, which Google bills separately; check your budget alert covers it.
 
+## Render with AI (optional)
+
+**Render with AI** in the Night preview sends a clean frame of your design to OpenAI's image-editing model and gets back a photorealistic version. RoofGlow adds your logo on top and downloads the image automatically.
+
+A ChatGPT Plus subscription can't be used for this. OpenAI's API is a separate account with pay-per-use billing. Your OpenAI key must also stay secret, so it lives in a small free relay (a Cloudflare Worker) instead of your web page. The relay only accepts requests from your website, and only with your passcode.
+
+### 1. OpenAI API account
+1. Go to platform.openai.com and sign in (you can use the same login as ChatGPT).
+2. Under **Settings → Billing**, add a payment method and some credit. Set a **monthly usage limit** so costs can't surprise you.
+3. If OpenAI asks you to **verify your organization** before using image models, complete that step.
+4. Under **API keys**, create a key and copy it. You won't be able to see it again.
+
+### 2. Cloudflare Worker (the relay)
+1. Create a free account at dash.cloudflare.com.
+2. Go to **Workers & Pages → Create → Create Worker**. Name it `roofglow-ai` and click **Deploy**.
+3. Click **Edit code**, delete the sample code, paste the entire contents of `roofglow-ai-worker.js`, and click **Deploy**.
+4. Go to the Worker's **Settings → Variables and Secrets** and add:
+   - `OPENAI_API_KEY`, type **Secret**: your OpenAI key
+   - `ROOFGLOW_PASSCODE`, type **Secret**: a passcode you make up (you'll type it in RoofGlow)
+   - `ALLOWED_ORIGINS`, type **Text**: your site addresses, comma-separated, for example `https://long-island-christmas-lights-pro.webflow.io,https://www.yourdomain.com`
+5. Copy the Worker's address, shown at the top, for example `https://roofglow-ai.yourname.workers.dev`.
+
+### 3. Connect RoofGlow
+In `roofglow.html`, replace `YOUR-AI-RELAY-URL` with the Worker address, paste the embed into Webflow, and publish.
+
+### Using it
+In the Night preview, click **Render with AI**, enter your passcode the first time, and click **Render image**. It usually takes under a minute. **High** quality looks best; **Standard** is faster and cheaper. You can add extra instructions, such as "light snow on the lawn".
+
+Notes:
+- The AI keeps your design as closely as it can, but it can still shift small details. Use the regular preview as the exact design.
+- OpenAI's image model names change over time. The relay uses `gpt-image-1.5`. To use another model, add a Text variable `OPENAI_IMAGE_MODEL` to the Worker with the new name.
+- Street View photos that Google doesn't let the browser read can't be sent to the AI. Use an uploaded photo for those.
+
 ## Mini lights product settings
 
 Mini light estimates use your strand: 50 lights, 6 in apart, 25 ft per strand. If your product changes, open `roofglow.js`, search for `const MINI =`, edit the numbers on that line, and publish a new version.
@@ -97,8 +130,8 @@ Mini light estimates use your strand: 50 lights, 6 in apart, 25 ft per strand. I
 jsDelivr caches tagged versions permanently, so to publish changes:
 
 1. Upload the changed `roofglow.css` or `roofglow.js` to the GitHub repository.
-2. Create a new release with a new tag, for example `2.7.1`.
-3. In the Webflow embed, change `@2.7.0` to `@2.7.1` in both URLs and republish.
+2. Create a new release with a new tag, for example `2.8.1`.
+3. In the Webflow embed, change `@2.8.0` to `@2.8.1` in both URLs and republish.
 
 The HTML in the embed only needs to change if the structure of the tool changes.
 

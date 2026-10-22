@@ -271,6 +271,7 @@
 #roofglow .rg-pv{margin-top:1.25rem; background:var(--rg-panel); border:1px solid var(--rg-line); border-radius:var(--rg-radius); overflow:hidden; scroll-margin-top:var(--rg-scroll-offset)}
 #roofglow .rg-pvhead{display:flex; justify-content:space-between; align-items:center; gap:1rem; padding:.75rem 1.1rem}
 #roofglow .rg-pvhead h2{font-size:1.15rem; font-weight:700}
+#roofglow .rg-pvacts{display:flex; gap:.5rem; flex-wrap:wrap; justify-content:flex-end}
 #roofglow .rg-pvstage{background:#05080d}
 #roofglow .rg-pvempty{padding:2.5rem 1.5rem; text-align:center; color:#C9D4E0}
 #roofglow .rg-pvframe{position:relative; width:fit-content; max-width:100%; margin:0 auto; line-height:0}
@@ -415,4 +416,42 @@
   #roofglow-map .rgsv-search{padding-top:.6rem}
   #roofglow-map .rgmap-side{flex:0 0 auto; border-left:0; border-top:1px solid #E2E7EE; max-height:none}
   #roofglow-map .rgsv-foot .rgsv-btn{flex:1 1 100%}
+}
+
+/* ---------- Render with AI (dialog on <body>, outside #roofglow) ---------- */
+#roofglow-ai{width:min(760px,96vw); max-width:96vw; max-height:94vh; padding:0; border:0; border-radius:14px;
+  background:#fff; color:#0F1E3A; box-shadow:0 24px 60px rgba(0,0,0,.35); overflow:hidden;
+  font:400 15px/1.5 "Inter",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif; box-sizing:border-box}
+#roofglow-ai *,#roofglow-ai *::before,#roofglow-ai *::after{box-sizing:border-box}
+#roofglow-ai[open]{display:flex; flex-direction:column}
+#roofglow-ai::backdrop{background:rgba(8,14,26,.62)}
+#roofglow-ai .rgsv-head{display:flex; justify-content:space-between; align-items:center; gap:1rem; padding:.8rem 1rem; border-bottom:1px solid #E2E7EE}
+#roofglow-ai h2{margin:0; padding:0; font-family:inherit; font-size:1.15rem; font-weight:700; line-height:1.2; color:inherit; text-transform:none}
+#roofglow-ai p{margin:0}
+#roofglow-ai .rgai-body{display:grid; gap:.8rem; padding:1rem; overflow:auto}
+#roofglow-ai .rgai-intro{font-size:.9rem; color:#2E3B55}
+#roofglow-ai .rgai-row{display:grid; grid-template-columns:1fr 12rem; gap:.75rem}
+#roofglow-ai label{display:grid; gap:.3rem; margin:0; font-size:.85rem; font-weight:600; color:#2E3B55}
+#roofglow-ai label.rgai-remember{display:flex; align-items:center; gap:.45rem; font-weight:500}
+#roofglow-ai input[type=checkbox]{width:18px; height:18px; margin:0; accent-color:#0F2348}
+#roofglow-ai .rgsv-input,#roofglow-ai select,#roofglow-ai textarea{font:inherit; font-size:.95rem; color:#0F1E3A; background:#fff; border:1px solid #CDD5E1; border-radius:8px; padding:.55rem .7rem; margin:0; min-height:42px; width:100%; box-shadow:none; height:auto}
+#roofglow-ai select{-webkit-appearance:menulist; appearance:auto}
+#roofglow-ai textarea{resize:vertical; min-height:60px}
+#roofglow-ai .rgsv-btn{font:inherit; font-weight:600; font-size:.95rem; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:.4rem;
+  min-height:44px; padding:.5rem 1.1rem; margin:0; border-radius:8px; border:1px solid #0F2348; background:#0F2348; color:#fff; -webkit-appearance:none; appearance:none; box-shadow:none; text-transform:none}
+#roofglow-ai .rgsv-btn:hover:not(:disabled){background:#1B3566}
+#roofglow-ai .rgsv-btn:disabled{opacity:.45; cursor:not-allowed}
+#roofglow-ai .rgsv-light{background:#fff; color:#0F1E3A; border-color:#CDD5E1}
+#roofglow-ai .rgsv-light:hover:not(:disabled){background:#F3F5F8}
+#roofglow-ai .rgsv-close{background:transparent; color:#2E3B55; border-color:transparent; min-height:36px; width:36px; padding:0}
+#roofglow-ai .rgsv-close:hover:not(:disabled){background:#F3F5F8}
+#roofglow-ai :focus-visible{outline:2px solid #1C55C8; outline-offset:2px}
+#roofglow-ai .rgsv-msg{font-size:.9rem; color:#2E3B55; min-height:1.4em; font-variant-numeric:tabular-nums}
+#roofglow-ai .rgsv-msg.rgsv-err{color:#B3261E}
+#roofglow-ai .rgai-result img{display:block; width:100%; height:auto; border-radius:10px; border:1px solid #E2E7EE}
+#roofglow-ai .rgsv-foot{display:flex; gap:.6rem; justify-content:flex-end; padding:.75rem 1rem; border-top:1px solid #E2E7EE}
+@media (max-width:600px){
+  #roofglow-ai{width:100vw; max-width:100vw; height:100%; max-height:100%; border-radius:0}
+  #roofglow-ai .rgai-row{grid-template-columns:1fr}
+  #roofglow-ai .rgsv-foot .rgsv-btn{flex:1 1 0}
 }

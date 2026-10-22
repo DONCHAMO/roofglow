@@ -1848,10 +1848,11 @@
     }
   }
 
-  function frame(now, move){
+  function frame(now, move, target, clean){
     if (!P.ready || !P.lit) return;
-    const t = now / 1000, dt = Math.min(0.05, Math.max(0, t - P.last)); P.last = t;
-    const {W, H} = P, mode = $('#pvFx').value;
+    const pg = target || pvC.getContext('2d');
+    const t = now / 1000, dt = clean ? 0 : Math.min(0.05, Math.max(0, t - P.last)); if (!clean) P.last = t;
+    const {W, H} = P, mode = clean ? 'steady' : $('#pvFx').value;
     pg.globalCompositeOperation = 'source-over'; pg.globalAlpha = 1;
     pg.drawImage(P.lit, 0, 0);
     pg.globalCompositeOperation = 'lighter';
@@ -1871,13 +1872,13 @@
         pg.globalAlpha = Math.min(1, .75 * gl * v); pg.drawImage(b.c, b.x, b.y, b.w, b.h);
       }
       for (const b of P.dlights){
-        const s = P.dsprites[b.di][b.ci], v = (b.spr ? spritzLevel(b, t) : level(b, t, mode)) * (b.tip ? 1.45 : b.inner ? .7 : 1);
+        const s = P.dsprites[b.di][b.ci], v = (b.spr && !clean ? spritzLevel(b, t) : level(b, t, mode)) * (b.tip ? 1.45 : b.inner ? .7 : 1);
         pg.globalAlpha = Math.min(1, v); pg.drawImage(s.c, b.x - s.m, b.y - s.m);
         if (v > 1){ pg.globalAlpha = Math.min(1, v - 1); pg.drawImage(s.c, b.x - s.m, b.y - s.m); }
       }
     }
     pg.globalCompositeOperation = 'source-over';
-    for (const f of P.flakes){
+    if (!clean) for (const f of P.flakes){
       if (move){
         f.y += f.vy * dt; f.x += Math.sin(t * 0.9 + f.ph) * f.sway * dt;
         if (f.y > H + 6){ f.y = -6; f.x = Math.random() * W; }
@@ -1887,6 +1888,7 @@
       pg.globalAlpha = f.a; pg.drawImage(P.flakeSprite, f.x - d/2, f.y - d/2, d, d);
     }
     pg.globalAlpha = 1;
+    if (clean) return;
     drawWatermark(pg, W, H);
     if (S.source === 'streetview') credit(pg, W, H);
   }
@@ -1933,6 +1935,105 @@
       setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     }, 'image/jpeg', 0.92);
   };
+
+  /* ---------- Render with AI ----------
+     Sends a clean frame of the night preview to your RoofGlow AI relay (a small Cloudflare Worker
+     that holds your OpenAI key), gets back a photorealistic version, adds your logo, and downloads it. */
+  const AI_URL = (root.dataset.rgAiUrl || '').trim().replace(/^YOUR-AI-RELAY-URL$/, '');
+  const AI_PROMPT = [
+    'Turn this into a single, photorealistic nighttime photograph of the same house, as if shot by a professional photographer at dusk-to-night.',
+    'Keep every Christmas light exactly where it is: the same positions, number, spacing and colors. Do not add, remove, move or recolor any lights or decorations.',
+    'Keep the house, roofline, windows, doors, siding, landscaping, trees, driveway and any vehicles exactly as they are. Same camera angle and framing.',
+    'Make the lighting natural and consistent across the whole image: a soft warm glow from the lights onto nearby fascia, siding, roof edges and plants, with realistic falloff;',
+    'a believable night sky; gentle, even exposure with no harsh patches, seams or halos; subtle realistic ambient light.',
+    'Do not add any text, watermarks or logos.'
+  ].join(' ');
+  let aiDlg = null, aiBusy = false;
+  function aiDialog(){
+    if (aiDlg) return aiDlg;
+    aiDlg = document.createElement('dialog');
+    aiDlg.id = 'roofglow-ai'; aiDlg.setAttribute('aria-labelledby', 'rg-aiTitle');
+    aiDlg.innerHTML = `
+      <div class="rgsv-head"><h2 id="rg-aiTitle">Render with AI</h2>
+        <button type="button" class="rgsv-btn rgsv-close" id="rg-aiClose" aria-label="Close">✕</button></div>
+      <div class="rgai-body">
+        <p class="rgai-intro">Creates a photorealistic version of the current night preview. It usually takes under a minute, and the image downloads when it’s done. The AI keeps your design as closely as it can, but small details can change, so use the regular preview as the exact design.</p>
+        <div class="rgai-row">
+          <label>Passcode<input type="password" class="rgsv-input" id="rg-aiPass" autocomplete="current-password"></label>
+          <label>Quality<select id="rg-aiQuality"><option value="medium">Standard</option><option value="high" selected>High (slower)</option></select></label>
+        </div>
+        <label class="rgai-remember"><input type="checkbox" id="rg-aiRemember" checked> Remember the passcode on this device</label>
+        <label>Extra instructions (optional)<textarea id="rg-aiExtra" rows="2" placeholder="For example: light snow on the lawn, warm light in the windows"></textarea></label>
+        <p class="rgsv-msg" id="rg-aiMsg" aria-live="polite"></p>
+        <div class="rgai-result" id="rg-aiResult" hidden><img id="rg-aiImg" alt="AI rendering of the lighting design"></div>
+      </div>
+      <div class="rgsv-foot">
+        <button type="button" class="rgsv-btn rgsv-light" id="rg-aiDownload" hidden>Download again</button>
+        <button type="button" class="rgsv-btn" id="rg-aiGo">Render image</button>
+      </div>`;
+    document.body.appendChild(aiDlg);
+    $('#aiClose').onclick = () => aiDlg.close();
+    aiDlg.addEventListener('click', e => { if (e.target === aiDlg && !aiBusy) aiDlg.close(); });
+    aiDlg.addEventListener('cancel', e => { if (aiBusy) e.preventDefault(); });
+    $('#aiGo').onclick = aiRender;
+    $('#aiDownload').onclick = () => aiSave($('#aiImg').src);
+    try { const p = localStorage.getItem('roofglow-ai-pass'); if (p) $('#aiPass').value = p; } catch(_){}
+    return aiDlg;
+  }
+  function aiMsg(t, err){ const m = $('#aiMsg'); m.textContent = t; m.classList.toggle('rgsv-err', !!err); }
+  function aiSave(url){
+    const a = document.createElement('a'); a.href = url; a.download = 'christmas-lights-ai-render.jpg';
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+  $('#aiOpen').onclick = () => {
+    aiDialog();
+    if (typeof aiDlg.showModal === 'function') aiDlg.showModal(); else aiDlg.setAttribute('open', '');
+    if (!AI_URL){ aiMsg('Render with AI isn’t set up yet. It needs your RoofGlow AI relay address in the embed (data-rg-ai-url). The README explains how.', true); $('#aiGo').disabled = true; return; }
+    if (!P.ready){ aiMsg('Trace a roofline or place a decoration first, so there’s a preview to render.', true); $('#aiGo').disabled = true; return; }
+    $('#aiGo').disabled = false;
+    aiMsg($('#aiPass').value ? '' : 'Enter your passcode to start.');
+  };
+  async function aiRender(){
+    if (aiBusy || !P.ready) return;
+    const pass = $('#aiPass').value.trim();
+    if (!pass){ aiMsg('Enter your passcode first.', true); $('#aiPass').focus(); return; }
+    try { if ($('#aiRemember').checked) localStorage.setItem('roofglow-ai-pass', pass); else localStorage.removeItem('roofglow-ai-pass'); } catch(_){}
+    // a clean frame: steady lights, no snow, no logo (the logo is added back afterwards, sharp and unchanged)
+    const src = document.createElement('canvas'), sc = Math.min(1, 1536 / Math.max(P.W, P.H));
+    const full = document.createElement('canvas'); full.width = P.W; full.height = P.H;
+    frame(performance.now(), false, full.getContext('2d'), true);
+    src.width = Math.round(P.W * sc); src.height = Math.round(P.H * sc);
+    src.getContext('2d').drawImage(full, 0, 0, src.width, src.height);
+    let image;
+    try { image = src.toDataURL('image/jpeg', .9); }
+    catch(_){ aiMsg('This Street View photo can’t be sent to the AI from the browser (Google blocks it). Use an uploaded photo instead.', true); return; }
+    const extra = $('#aiExtra').value.trim();
+    aiBusy = true; $('#aiGo').disabled = true; $('#aiClose').disabled = true;
+    const t0 = Date.now(), tick = setInterval(() => aiMsg(`Rendering… ${Math.round((Date.now() - t0) / 1000)} s`), 1000);
+    aiMsg('Rendering… 0 s');
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 240000);
+    try {
+      const r = await fetch(AI_URL, {method: 'POST', headers: {'Content-Type': 'application/json'}, signal: ctl.signal,
+        body: JSON.stringify({image, passcode: pass, quality: $('#aiQuality').value, prompt: AI_PROMPT + (extra ? ' Also: ' + extra.slice(0, 500) : '')})});
+      let out = null; try { out = await r.json(); } catch(_){}
+      if (!r.ok || !out || !out.image) throw new Error((out && out.error) || `The AI relay answered with an error (${r.status}).`);
+      // add your logo (and Google's credit for Street View photos) on top of the AI image
+      const ai = await imgFromUrl(out.image);
+      const c = document.createElement('canvas'); c.width = ai.naturalWidth; c.height = ai.naturalHeight;
+      const g = c.getContext('2d'); g.drawImage(ai, 0, 0);
+      drawWatermark(g, c.width, c.height);
+      if (S.source === 'streetview') credit(g, c.width, c.height);
+      const url = c.toDataURL('image/jpeg', .93);
+      $('#aiImg').src = url; $('#aiResult').hidden = false; $('#aiDownload').hidden = false;
+      aiMsg(`Done in ${Math.round((Date.now() - t0) / 1000)} s. The image has been downloaded.`);
+      aiSave(url);
+    } catch(e){
+      aiMsg(e.name === 'AbortError' ? 'The AI took too long to answer. Try again, or use Standard quality.' : (e.message || 'Something went wrong.'), true);
+    } finally {
+      clearInterval(tick); clearTimeout(timer); aiBusy = false; $('#aiGo').disabled = false; $('#aiClose').disabled = false;
+      $('#aiGo').textContent = 'Render again';
+    }
+  }
 
   /* ---------- Start over ---------- */
   $('#reset').onclick = () => {
