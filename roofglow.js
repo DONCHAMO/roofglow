@@ -247,32 +247,56 @@
     const tiles = plan.tiles.map((t, n) => {
       const c = document.createElement('canvas'); c.width = c.height = T;
       const g = c.getContext('2d'); g.drawImage(imgs[n], 0, 0, T, T);
-      return {...camFrame(t.hd, t.pd), px: g.getImageData(0, 0, T, T).data};   // throws if Google blocks pixel access
+      return {...camFrame(t.hd, t.pd), px: g.getImageData(0, 0, T, T).data, gain: 1};   // throws if Google blocks pixel access
     });
-    const out = document.createElement('canvas'); out.width = W; out.height = H;
-    const og = out.getContext('2d'), od = og.createImageData(W, H), o = od.data;
     const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
     const d = [0, 0, 0];
-    for (let y = 0; y < H; y++){
-      const yy = -(y + .5 - H/2);
-      for (let x = 0; x < W; x++){
-        const xx = x + .5 - W/2;
-        d[0] = O.f[0]*fo + O.r[0]*xx + O.u[0]*yy;
-        d[1] = O.f[1]*fo + O.r[1]*xx + O.u[1]*yy;
-        d[2] = O.f[2]*fo + O.r[2]*xx + O.u[2]*yy;
-        // use the shot whose center points closest to this pixel
-        let best = tiles[0], bz = -Infinity;
-        for (const t of tiles){ const z = dot(d, t.f); if (z > bz){ bz = z; best = t; } }
-        let sx = fT * dot(d, best.r) / bz + half - .5, sy = -fT * dot(d, best.u) / bz + half - .5;
-        sx = Math.min(T - 1.001, Math.max(0, sx)); sy = Math.min(T - 1.001, Math.max(0, sy));
-        const x0 = sx | 0, y0 = sy | 0, fx = sx - x0, fy = sy - y0, p = best.px;
-        const i00 = (y0*T + x0) * 4, i10 = i00 + 4, i01 = i00 + T*4, i11 = i01 + 4, k = (y*W + x) * 4;
-        for (let c = 0; c < 3; c++){
-          const top = p[i00+c] + (p[i10+c] - p[i00+c]) * fx, bot = p[i01+c] + (p[i11+c] - p[i01+c]) * fx;
-          o[k+c] = top + (bot - top) * fy;
-        }
-        o[k+3] = 255;
+    // Where pixel (x, y) of the result lands in tile t, plus a weight that fades to 0 toward the tile's edges
+    function hit(t, x, y){
+      const xx = x + .5 - W/2, yy = -(y + .5 - H/2);
+      d[0] = O.f[0]*fo + O.r[0]*xx + O.u[0]*yy; d[1] = O.f[1]*fo + O.r[1]*xx + O.u[1]*yy; d[2] = O.f[2]*fo + O.r[2]*xx + O.u[2]*yy;
+      const z = dot(d, t.f); if (z <= 0) return null;
+      const nx = fT * dot(d, t.r) / z / half, ny = -fT * dot(d, t.u) / z / half;      // -1..1 inside the tile
+      if (Math.abs(nx) >= 1 || Math.abs(ny) >= 1) return null;
+      return {sx: nx * half + half - .5, sy: ny * half + half - .5, w: smooth(0, 1, (1 - Math.abs(nx)) / .3) * smooth(0, 1, (1 - Math.abs(ny)) / .3) + 1e-6};
+    }
+    function sample(t, sx, sy, out){
+      sx = Math.min(T - 1.001, Math.max(0, sx)); sy = Math.min(T - 1.001, Math.max(0, sy));
+      const x0 = sx | 0, y0 = sy | 0, fx = sx - x0, fy = sy - y0, p = t.px;
+      const i00 = (y0*T + x0) * 4, i10 = i00 + 4, i01 = i00 + T*4, i11 = i01 + 4;
+      for (let c = 0; c < 3; c++){
+        const top = p[i00+c] + (p[i10+c] - p[i00+c]) * fx, bot = p[i01+c] + (p[i11+c] - p[i01+c]) * fx;
+        out[c] = top + (bot - top) * fy;
       }
+    }
+    // 1) Exposure matching: compare each shot with its neighbours where they overlap, and even them out
+    const own = tiles.map(() => 0), others = tiles.map(() => 0), px = [0, 0, 0];
+    for (let y = 2; y < H; y += 6) for (let x = 2; x < W; x += 6){
+      const hs = tiles.map(t => hit(t, x, y));
+      const lum = hs.map((h, n) => { if (!h) return null; sample(tiles[n], h.sx, h.sy, px); return .299*px[0] + .587*px[1] + .114*px[2]; });
+      const idx = hs.map((h, n) => h ? n : -1).filter(n => n >= 0);
+      if (idx.length < 2) continue;
+      idx.forEach(n => {
+        let s = 0, wsum = 0; idx.forEach(m => { if (m !== n){ s += lum[m] * hs[m].w; wsum += hs[m].w; } });
+        own[n] += lum[n] * hs[n].w; others[n] += s / wsum * hs[n].w;
+      });
+    }
+    tiles.forEach((t, n) => { if (own[n] > 0) t.gain = Math.min(1.2, Math.max(.83, Math.sqrt(others[n] / own[n]))); });
+    const mean = tiles.reduce((a, t) => a + t.gain, 0) / tiles.length;
+    tiles.forEach(t => t.gain /= mean);
+    // 2) Blend: every pixel mixes all shots that cover it, weighted toward each shot's center
+    const out = document.createElement('canvas'); out.width = W; out.height = H;
+    const og = out.getContext('2d'), od = og.createImageData(W, H), o = od.data, acc = [0, 0, 0];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+      let wsum = 0; acc[0] = acc[1] = acc[2] = 0;
+      for (const t of tiles){
+        const h = hit(t, x, y); if (!h) continue;
+        sample(t, h.sx, h.sy, px);
+        acc[0] += px[0] * t.gain * h.w; acc[1] += px[1] * t.gain * h.w; acc[2] += px[2] * t.gain * h.w; wsum += h.w;
+      }
+      const k = (y*W + x) * 4;
+      if (wsum > 0){ o[k] = acc[0] / wsum; o[k+1] = acc[1] / wsum; o[k+2] = acc[2] / wsum; }
+      o[k+3] = 255;
     }
     og.putImageData(od, 0, 0);
     return out;
@@ -1372,22 +1396,46 @@
      Colors are muted, mid-tones pushed down (whites like siding stay readable),
      everything shifts cool blue, and bright sky above the roofline goes deep navy. */
   function nightBase(img, W, H, dark, runs){
-    const key = [img.src.length, img.src.slice(-32), W, dark, JSON.stringify(runs.map(p => p.length))].join('|');
+    const key = [img.src.length, img.src.slice(-32), W, dark, JSON.stringify(runs.map(p => p.map(q => [Math.round(q.x), Math.round(q.y)])))].join('|');
     if (P.baseKey === key) return P.base;
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const x = c.getContext('2d'); x.drawImage(img, 0, 0, W, H);
 
-    // Sky can only be above the traced roofline. Build that limit for each column.
-    const limit = new Float32Array(W).fill(-1); const ys = [];
+    /* Where sky can be: above the TOP traced roof edge in each column (so gable walls and roofs
+       are never mistaken for sky). Beside the house it eases down gradually, and the whole
+       boundary is softened, so there are no straight vertical edges or rectangular patches. */
+    const top = new Float32Array(W).fill(NaN), ys = [];
     runs.forEach(pts => { for (let i=1;i<pts.length;i++){
       const a = pts[i-1], b = pts[i], x0 = Math.max(0, Math.round(Math.min(a.x,b.x))), x1 = Math.min(W-1, Math.round(Math.max(a.x,b.x)));
-      for (let xx=x0; xx<=x1; xx++){ const f = b.x===a.x ? 0 : (xx-a.x)/(b.x-a.x); const y = a.y + (b.y-a.y)*f; if (y > limit[xx]) limit[xx] = y; }
+      for (let xx=x0; xx<=x1; xx++){ const f = b.x===a.x ? 0 : (xx-a.x)/(b.x-a.x); const y = a.y + (b.y-a.y)*f; if (!(top[xx] <= y)) top[xx] = y; }
       ys.push(a.y, b.y);
     }});
-    // Beside the house, sky can reach a little below the lowest roof edge (behind trees, etc.)
     const fallback = ys.length ? Math.min(H, Math.max(...ys) + H * 0.12) : H * 0.4;
-    for (let xx=0; xx<W; xx++) if (limit[xx] < 0) limit[xx] = fallback;
-    const fade = H * 0.04;
+    const limit = new Float32Array(W);
+    if (!ys.length) limit.fill(fallback);
+    else {
+      const Lx = new Int32Array(W), Rx = new Int32Array(W), ramp = W * .1;
+      for (let xx=0, last=-1; xx<W; xx++){ if (!isNaN(top[xx])) last = xx; Lx[xx] = last; }
+      for (let xx=W-1, last=-1; xx>=0; xx--){ if (!isNaN(top[xx])) last = xx; Rx[xx] = last; }
+      for (let xx=0; xx<W; xx++){
+        if (!isNaN(top[xx])){ limit[xx] = top[xx]; continue; }
+        const l = Lx[xx], r = Rx[xx]; let v, dd;
+        if (l >= 0 && r >= 0){ v = top[l] + (top[r] - top[l]) * (xx - l) / (r - l); dd = Math.min(xx - l, r - xx); }
+        else if (l >= 0){ v = top[l]; dd = xx - l; } else { v = top[r]; dd = r - xx; }
+        limit[xx] = v + (Math.max(v, fallback) - v) * smooth(0, 1, dd / ramp);
+      }
+      const rad = Math.max(2, Math.round(W * .02)), tmp = new Float32Array(W);
+      for (let pass = 0; pass < 3; pass++){                      // three box blurs ≈ a smooth gaussian
+        let sum = 0;
+        for (let xx = -rad; xx <= rad; xx++) sum += limit[Math.min(W-1, Math.max(0, xx))];
+        for (let xx = 0; xx < W; xx++){
+          tmp[xx] = sum / (2*rad + 1);
+          sum += limit[Math.min(W-1, xx + rad + 1)] - limit[Math.max(0, xx - rad)];
+        }
+        limit.set(tmp);
+      }
+    }
+    const fade = H * 0.06;
 
     let d;
     try { d = x.getImageData(0, 0, W, H); }
@@ -1396,6 +1444,7 @@
       x.globalCompositeOperation = 'multiply';
       x.fillStyle = `rgb(${[38,50,92].map(v => Math.round(255 + (v - 255) * dark))})`; x.fillRect(0, 0, W, H);
       x.globalCompositeOperation = 'source-over';
+      P.skyMask = null;
       const sky = x.createLinearGradient(0, 0, 0, Math.min(H, fallback));
       sky.addColorStop(0, `rgba(8,14,34,${.55 * dark})`); sky.addColorStop(1, 'rgba(8,14,34,0)');
       x.fillStyle = sky; x.fillRect(0, 0, W, H);
@@ -1403,6 +1452,7 @@
       return c;
     }
     const a = d.data;
+    const mask = x.createImageData(W, H), m = mask.data;   // where the sky is, so light spill can skip it
     const desat = 0.6*dark, gam = 1 + 0.9*dark, gain = 1 - 0.48*dark;
     const tr = 1 - 0.30*dark, tg = 1 - 0.17*dark, tb = 1 + 0.12*dark;
     const NR = 0.03, NG = 0.05, NB = 0.13;
@@ -1411,8 +1461,9 @@
         const i = (yy*W + xx) * 4;
         let r = a[i]/255, g = a[i+1]/255, b = a[i+2]/255;
         const lum = 0.299*r + 0.587*g + 0.114*b;
-        const above = Math.min(1, Math.max(0, (limit[xx] - yy) / fade));
-        const sky = above * Math.min(1, Math.max(0, (lum - 0.45) / 0.3)) * (b >= r*0.9 ? 1 : 0.5);
+        // every factor is a smooth ramp, so the sky blends into trees and rooftops without hard lines
+        const sky = smooth(0, 1, (limit[xx] - yy) / fade) * smooth(.40, .72, lum) * (.55 + .45 * smooth(.82, 1.02, b / (r + 1e-3)));
+        m[i+3] = sky * 255;
         r += (lum - r)*desat; g += (lum - g)*desat; b += (lum - b)*desat;
         r = Math.pow(r, gam)*gain*tr; g = Math.pow(g, gam)*gain*tg; b = Math.pow(b, gam)*gain*tb;
         const k = sky * 0.92 * dark;
@@ -1420,6 +1471,8 @@
       }
     }
     x.putImageData(d, 0, 0);
+    const mc = document.createElement('canvas'); mc.width = W; mc.height = H; mc.getContext('2d').putImageData(mask, 0, 0);
+    P.skyMask = mc;
     P.base = c; P.baseKey = key;
     return c;
   }
@@ -1436,7 +1489,7 @@
     const aSpill = Math.min(0.5, 0.6 * glow * step / (1.6 * sR));   // keep overlapping bulbs from blowing out
     bulbs.forEach(b => {
       const [cr, cg, cb] = pal[b.ci];
-      l.save(); l.translate(b.x, b.y + sR * 0.55); l.scale(1.6, 1);
+      l.save(); l.translate(b.x, b.y + sR * 0.62); l.scale(1.6, 1);
       const gr = l.createRadialGradient(0, 0, 0, 0, 0, sR);
       gr.addColorStop(0, `rgba(${cr},${cg},${cb},${aSpill})`);
       gr.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
@@ -1445,6 +1498,8 @@
     const T = document.createElement('canvas'); T.width = W; T.height = H;
     const t = T.getContext('2d'); t.drawImage(img, 0, 0, W, H);
     t.globalCompositeOperation = 'multiply'; t.drawImage(L, 0, 0);
+    // light lands on surfaces (fascia, siding, roof edge), not on the sky behind the house
+    if (P.skyMask){ t.globalCompositeOperation = 'destination-out'; t.drawImage(P.skyMask, 0, 0); }
     x.globalCompositeOperation = 'lighter'; x.drawImage(T, 0, 0);
     // the wire, barely visible
     x.globalCompositeOperation = 'source-over';
@@ -1551,7 +1606,12 @@
           const t = document.createElement('canvas'); t.width = bw; t.height = bh; const tg = t.getContext('2d');
           tg.drawImage(S.img, bx / r, by / r, bw / r, bh / r, 0, 0, bw, bh);
           tg.globalCompositeOperation = 'multiply'; tg.fillStyle = `rgb(${Math.round(gr0*.75)},${Math.round(gg0*.6)},${Math.round(gb0*.4)})`; tg.fillRect(0, 0, bw, bh);
-          g.save(); g.beginPath(); d.pts.forEach((p,i) => i ? g.lineTo(p.x*r, p.y*r) : g.moveTo(p.x*r, p.y*r)); g.closePath(); g.clip();
+          // feathered outline: draw the shape small, then scale it up so its edge fades softly
+          const fs = 7, mk = document.createElement('canvas'); mk.width = Math.max(2, Math.ceil(bw / fs)); mk.height = Math.max(2, Math.ceil(bh / fs));
+          const mg = mk.getContext('2d'); mg.fillStyle = '#fff'; mg.beginPath();
+          d.pts.forEach((p,i) => { const px = (p.x*r - bx) / fs, py = (p.y*r - by) / fs; i ? mg.lineTo(px, py) : mg.moveTo(px, py); }); mg.closePath(); mg.fill();
+          tg.globalCompositeOperation = 'destination-in'; tg.imageSmoothingEnabled = true; tg.drawImage(mk, 0, 0, bw, bh);
+          g.save();
           g.globalCompositeOperation = 'lighter'; g.globalAlpha = Math.min(1, .45 * glow * Math.min(1.4, 8 / (d.rowIn || 8)));
           g.drawImage(t, bx, by); g.restore(); g.globalAlpha = 1;
         }
