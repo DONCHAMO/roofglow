@@ -180,6 +180,7 @@
       try { geo = await new Geocoder().geocode({address: addr}); } catch(_){ geo = null; }
       if (!geo || !geo.results || !geo.results.length){ svMsg('That address wasn’t found. Try adding the town and state.', true); return; }
       const house = geo.results[0].geometry.location;
+      S.lastGeo = {loc: house, addr: addr};
       let data = null;
       for (const radius of [50, 120]){                 // nearest outdoor photo first, then a bit farther
         try { data = (await new sv.StreetViewService().getPanorama({location: house, radius,
@@ -344,6 +345,189 @@
     } catch(_){
       svMsg('Google didn’t return a photo. Check that the Street View Static API is enabled for your key.', true);
     } finally { $('#svUse').disabled = false; }
+  }
+
+  /* ---------- Measure on the satellite map ----------
+     A top-down satellite view where you click along roof edges and get lengths in feet,
+     like Google Maps' own measuring tool. Lines go into the estimate as runs. */
+  let mapDlg = null, gmap = null, mapLines = [], mapCur = null, spherical = null, MapLabel = null, mapLineN = 0;
+  const M2FT = 3.28084;
+  const pitchFactor = p => Math.sqrt(1 + (p / 12) * (p / 12));   // true length of a sloped edge vs. its top view
+  function mapDialog(){
+    if (mapDlg) return mapDlg;
+    mapDlg = document.createElement('dialog');
+    mapDlg.id = 'roofglow-map'; mapDlg.setAttribute('aria-labelledby', 'rg-mapTitle');
+    const pitchOpts = Array.from({length: 12}, (_, i) => i + 1).map(p => `<option value="${p}"${p === 6 ? ' selected' : ''}>${p}/12</option>`).join('');
+    mapDlg.innerHTML = `
+      <div class="rgsv-head"><h2 id="rg-mapTitle">Measure on satellite map</h2>
+        <button type="button" class="rgsv-btn rgsv-close" id="rg-mapClose" aria-label="Close">✕</button></div>
+      <div class="rgsv-search">
+        <input type="text" class="rgsv-input" id="rg-mapAddr" placeholder="Street address, town, state" autocomplete="street-address" aria-label="Address">
+        <button type="button" class="rgsv-btn" id="rg-mapGo">Find</button>
+      </div>
+      <p class="rgsv-msg" id="rg-mapMsg" aria-live="polite"></p>
+      <div class="rgmap-body">
+        <div class="rgmap-view" id="rg-mapView"></div>
+        <div class="rgmap-side">
+          <p class="rgmap-cur">Drawing: <b id="rg-mapCurLen">click the map to start a line</b></p>
+          <div class="rgmap-acts">
+            <button type="button" class="rgsv-btn rgsv-light" id="rg-mapUndo" disabled>Undo point</button>
+            <button type="button" class="rgsv-btn" id="rg-mapFinish" disabled>Finish line</button>
+          </div>
+          <label class="rgmap-pitch">Roof pitch for sloped lines <select id="rg-mapPitch">${pitchOpts}</select></label>
+          <ul class="rgmap-list" id="rg-mapList"></ul>
+          <p class="rgmap-total">Total: <b id="rg-mapTotal">0 ft</b></p>
+        </div>
+      </div>
+      <div class="rgsv-foot">
+        <p class="rgsv-tip">Click along a roof edge, then double-click or Finish line. Drag a line's points to adjust it. Mark rakes and other sloped edges as Sloped.</p>
+        <label class="rgmap-to">Add to <select id="rg-mapStr"></select></label>
+        <button type="button" class="rgsv-btn" id="rg-mapAdd" disabled>Add to estimate</button>
+      </div>`;
+    document.body.appendChild(mapDlg);
+    $('#mapClose').onclick = () => mapDlg.close();
+    mapDlg.addEventListener('click', e => { if (e.target === mapDlg) mapDlg.close(); });
+    $('#mapGo').onclick = () => mapFind();
+    $('#mapAddr').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); mapFind(); } });
+    $('#mapUndo').onclick = mapUndo;
+    $('#mapFinish').onclick = mapFinish;
+    $('#mapPitch').onchange = mapRender;
+    $('#mapAdd').onclick = mapAdd;
+    return mapDlg;
+  }
+  function mapMsg(t, err){ const m = $('#mapMsg'); if (!m) return; m.textContent = t; m.classList.toggle('rgsv-err', !!err); }
+  async function openMap(){
+    mapDialog();
+    if (typeof mapDlg.showModal === 'function') mapDlg.showModal(); else mapDlg.setAttribute('open', '');
+    $('#mapStr').innerHTML = S.strings.map(st => `<option value="${st.id}"${st.id === S.active ? ' selected' : ''}>${esc(st.name)}</option>`).join('');
+    if (!GKEY){
+      mapMsg('The satellite map needs a Google Maps API key. Add it to the RoofGlow embed (data-rg-gmaps-key). The README explains how.', true);
+      $('#mapGo').disabled = true; $('#mapAddr').disabled = true; return;
+    }
+    if (!$('#mapAddr').value && S.lastGeo) $('#mapAddr').value = S.lastGeo.addr;
+    try { await initMap(); } catch(_){ mapMsg('Couldn’t load Google Maps. Check your connection and that the Maps JavaScript API is enabled for your key.', true); return; }
+    if (S.lastGeo && !mapDlg.dataset.centered){ gmap.setCenter(S.lastGeo.loc); gmap.setZoom(20); mapDlg.dataset.centered = '1'; mapMsg(`${S.lastGeo.addr}. Click along a roof edge to measure it.`); }
+    else if (!S.lastGeo) { mapMsg('Type the address and press Find.'); $('#mapAddr').focus(); }
+    mapRender();
+  }
+  $('#mapOpen').onclick = $('#mapOpen2').onclick = openMap;
+
+  async function initMap(){
+    if (gmap) return;
+    await loadGmaps();
+    const {Map, Polyline, OverlayView} = await google.maps.importLibrary('maps');
+    ({spherical} = await google.maps.importLibrary('geometry'));
+    gmap = new Map($('#mapView'), {
+      center: {lat: 40.79, lng: -73.13}, zoom: 11, mapTypeId: 'satellite', tilt: 0, heading: 0,
+      disableDoubleClickZoom: true, clickableIcons: false, gestureHandling: 'greedy', draggableCursor: 'crosshair',
+      streetViewControl: false, mapTypeControl: false, rotateControl: false, fullscreenControl: false
+    });
+    // length labels drawn on the map, like Google's measuring tool
+    MapLabel = class extends OverlayView {
+      constructor(pos, text){ super(); this.pos = pos; this.text = text; this.div = null; }
+      onAdd(){ this.div = document.createElement('div'); this.div.className = 'rgmap-lbl'; this.div.textContent = this.text; this.getPanes().floatPane.appendChild(this.div); }
+      draw(){ const pr = this.getProjection(), p = pr && pr.fromLatLngToDivPixel(this.pos); if (p && this.div){ this.div.style.left = p.x + 'px'; this.div.style.top = p.y + 'px'; } }
+      onRemove(){ if (this.div) this.div.remove(); this.div = null; }
+      update(pos, text){ this.pos = pos; this.text = text; if (this.div) this.div.textContent = text; this.draw(); }
+    };
+    mapDlg.Polyline = Polyline;
+    gmap.addListener('click', e => {
+      if (!mapCur){
+        mapCur = new Polyline({map: gmap, path: [], clickable: false, strokeColor: '#FFFFFF', strokeOpacity: .95, strokeWeight: 3});
+        mapCur.label = new MapLabel(e.latLng, ''); mapCur.label.setMap(gmap);
+      }
+      mapCur.getPath().push(e.latLng);
+      mapRender();
+    });
+    gmap.addListener('dblclick', () => {
+      // a double-click also lands two clicks; drop the duplicate point, then finish
+      const path = mapCur && mapCur.getPath();
+      if (path && path.getLength() >= 2 && spherical.computeDistanceBetween(path.getAt(path.getLength()-1), path.getAt(path.getLength()-2)) < .3) path.pop();
+      mapFinish();
+    });
+  }
+  async function mapFind(){
+    const addr = $('#mapAddr').value.trim(); if (!addr){ $('#mapAddr').focus(); return; }
+    mapMsg('Searching…'); $('#mapGo').disabled = true;
+    try {
+      await initMap();
+      const {Geocoder} = await google.maps.importLibrary('geocoding');
+      let geo; try { geo = await new Geocoder().geocode({address: addr}); } catch(_){ geo = null; }
+      if (!geo || !geo.results || !geo.results.length){ mapMsg('That address wasn’t found. Try adding the town and state.', true); return; }
+      S.lastGeo = {loc: geo.results[0].geometry.location, addr};
+      gmap.setCenter(S.lastGeo.loc); gmap.setZoom(20); mapDlg.dataset.centered = '1';
+      mapMsg(`${geo.results[0].formatted_address}. Click along a roof edge to measure it.`);
+    } catch(_){ mapMsg('Couldn’t load Google Maps. Check your connection and that the Maps JavaScript API is enabled for your key.', true); }
+    finally { $('#mapGo').disabled = false; }
+  }
+  const lineFlatFt = pl => spherical ? spherical.computeLength(pl.getPath()) * M2FT : 0;
+  const lineFt = ln => lineFlatFt(ln.poly) * (ln.type === 'slope' ? pitchFactor(+$('#mapPitch').value) : 1);
+  // the point halfway along a line, for its label
+  function midOf(path){
+    const n = path.getLength(); if (n < 2) return path.getAt(0);
+    const total = spherical.computeLength(path); let run = 0;
+    for (let i = 1; i < n; i++){
+      const a = path.getAt(i-1), b = path.getAt(i), seg = spherical.computeDistanceBetween(a, b);
+      if (run + seg >= total / 2) return spherical.interpolate(a, b, seg ? (total/2 - run) / seg : 0);
+      run += seg;
+    }
+    return path.getAt(n - 1);
+  }
+  function mapFinish(){
+    if (!mapCur) return;
+    const path = mapCur.getPath();
+    if (path.getLength() < 2){ mapCur.setMap(null); mapCur.label.setMap(null); mapCur = null; mapRender(); return; }
+    const ln = {poly: mapCur, label: mapCur.label, type: 'level', n: ++mapLineN};
+    mapCur.setOptions({editable: true, clickable: true, strokeColor: '#F2B544', strokeWeight: 4});
+    ['insert_at', 'set_at', 'remove_at'].forEach(ev => path.addListener(ev, mapRender));   // dragging points updates lengths
+    mapLines.push(ln); mapCur = null;
+    mapRender();
+  }
+  function mapUndo(){
+    if (!mapCur) return;
+    mapCur.getPath().pop();
+    if (!mapCur.getPath().getLength()){ mapCur.setMap(null); mapCur.label.setMap(null); mapCur = null; }
+    mapRender();
+  }
+  function mapRender(){
+    if (!mapDlg) return;
+    const curFt = mapCur && spherical ? lineFlatFt(mapCur) : 0;
+    $('#mapCurLen').textContent = mapCur ? (mapCur.getPath().getLength() < 2 ? 'click the next point' : fmt(curFt)) : 'click the map to start a line';
+    $('#mapUndo').disabled = !mapCur; $('#mapFinish').disabled = !(mapCur && mapCur.getPath().getLength() >= 2);
+    if (mapCur && mapCur.getPath().getLength() >= 2) mapCur.label.update(midOf(mapCur.getPath()), fmt(curFt));
+    else if (mapCur) mapCur.label.update(mapCur.getPath().getAt(0), '');
+    const ul = $('#mapList'); ul.innerHTML = '';
+    let total = 0;
+    mapLines.forEach(ln => {
+      const ft = lineFt(ln); total += ft;
+      ln.label.update(midOf(ln.poly.getPath()), fmt(ft));
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="rgmap-name">Line ${ln.n}</span><b>${fmt(ft)}</b>
+        <select aria-label="Line ${ln.n} type"><option value="level"${ln.type === 'level' ? ' selected' : ''}>Level</option><option value="slope"${ln.type === 'slope' ? ' selected' : ''}>Sloped</option></select>
+        <button type="button" class="rgsv-btn rgsv-close" aria-label="Remove line ${ln.n}">✕</button>`;
+      li.querySelector('select').onchange = e => { ln.type = e.target.value; mapRender(); };
+      li.querySelector('button').onclick = () => { ln.poly.setMap(null); ln.label.setMap(null); mapLines = mapLines.filter(x => x !== ln); mapRender(); };
+      ul.appendChild(li);
+    });
+    if (!mapLines.length) ul.innerHTML = '<li class="rgmap-empty">No lines yet.</li>';
+    $('#mapTotal').textContent = fmt(total);
+    $('#mapAdd').disabled = !mapLines.length;
+    $('#mapAdd').textContent = mapLines.length ? `Add ${mapLines.length} line${mapLines.length === 1 ? '' : 's'} (${fmt(total)})` : 'Add to estimate';
+  }
+  function mapAdd(){
+    if (mapCur) mapFinish();
+    if (!mapLines.length) return;
+    const sid = +$('#mapStr').value || S.active, p = +$('#mapPitch').value;
+    mapLines.forEach(ln => {
+      S.manual.push({name: `Map line ${ln.n}${ln.type === 'slope' ? ` (sloped ${p}/12)` : ''}`, feet: lineFt(ln), sid});
+      ln.poly.setMap(null); ln.label.setMap(null);
+    });
+    const n = mapLines.length, st = strOf(sid).name;
+    mapLines = []; mapRender();
+    mapDlg.close();
+    S.active = sid;
+    update();
+    hint(`Added ${n} map line${n === 1 ? '' : 's'} to ${esc(st)}.`, true);
   }
 
   /* ---------- Zoom ---------- */

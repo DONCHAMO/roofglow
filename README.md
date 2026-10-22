@@ -18,16 +18,16 @@ Webflow's Assets panel doesn't accept `.css` or `.js` files, and the JavaScript 
 1. Create a free account at github.com if you don't have one.
 2. Click **New repository**. Name it exactly `roofglow`, set it to **Public**, and click **Create repository**. jsDelivr can only serve files from public repositories.
 3. On the new repository page, click **uploading an existing file**. Drag in `roofglow.css`, `roofglow.js`, and this README, then click **Commit changes**.
-4. Create a version tag. On the repository page, click **Releases**, then **Create a new release**. Under **Choose a tag**, type `2.6.0`, choose **Create new tag**, and click **Publish release**.
+4. Create a version tag. On the repository page, click **Releases**, then **Create a new release**. Under **Choose a tag**, type `2.7.0`, choose **Create new tag**, and click **Publish release**.
 
 Your files are now available at:
 
 ```
-https://cdn.jsdelivr.net/gh/YOUR-GITHUB-USERNAME/roofglow@2.6.0/roofglow.css
-https://cdn.jsdelivr.net/gh/YOUR-GITHUB-USERNAME/roofglow@2.6.0/roofglow.js
+https://cdn.jsdelivr.net/gh/YOUR-GITHUB-USERNAME/roofglow@2.7.0/roofglow.css
+https://cdn.jsdelivr.net/gh/YOUR-GITHUB-USERNAME/roofglow@2.7.0/roofglow.js
 ```
 
-Open both links in your browser, with your username in place. Each should show the file's code. If you see an error, check that the repository is public and the tag is exactly `2.6.0`.
+Open both links in your browser, with your username in place. Each should show the file's code. If you see an error, check that the repository is public and the tag is exactly `2.7.0`.
 
 ## Step 2: Prepare the embed code
 
@@ -84,6 +84,10 @@ Notes:
 - If Google doesn't allow the browser to read the image's pixels, the night preview uses a simpler darkening, and Download asks you to take a screenshot instead. Everything else works the same.
 - Since this page is for your own use, you can password-protect it in Webflow's page settings, which Webflow offers on paid plans.
 
+## Measure on satellite map
+
+Click **Measure on satellite map** (in Light strings) or **Measure on map** (in the empty photo area). It uses the same Google Maps API key as Find by address, and needs no additional APIs. Find the address, click along each roof edge, then double-click or press **Finish line**. Drag a line's points to adjust it. Mark rakes and other sloped edges as **Sloped** and choose the roof pitch: a satellite looks straight down, so sloped edges appear shorter than they are, and RoofGlow corrects for the pitch (a 6/12 slope is about 12% longer than it looks from above). **Add to estimate** adds the lines as runs on the selected string. Each map opening is a Google Maps load, which Google bills separately; check your budget alert covers it.
+
 ## Mini lights product settings
 
 Mini light estimates use your strand: 50 lights, 6 in apart, 25 ft per strand. If your product changes, open `roofglow.js`, search for `const MINI =`, edit the numbers on that line, and publish a new version.
@@ -93,8 +97,8 @@ Mini light estimates use your strand: 50 lights, 6 in apart, 25 ft per strand. I
 jsDelivr caches tagged versions permanently, so to publish changes:
 
 1. Upload the changed `roofglow.css` or `roofglow.js` to the GitHub repository.
-2. Create a new release with a new tag, for example `2.6.1`.
-3. In the Webflow embed, change `@2.6.0` to `@2.6.1` in both URLs and republish.
+2. Create a new release with a new tag, for example `2.7.1`.
+3. In the Webflow embed, change `@2.7.0` to `@2.7.1` in both URLs and republish.
 
 The HTML in the embed only needs to change if the structure of the tool changes.
 
