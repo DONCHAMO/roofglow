@@ -264,6 +264,63 @@
 #roofglow .rg-fields select{max-width:10.5rem}
 #roofglow .rg-settings .rg-note{padding:0 1.1rem 1rem; margin-top:.6rem}
 
+/* ---------- Light strings: Add menu and category tag ---------- */
+#roofglow .rg-addwrap{position:relative}
+#roofglow .rg-caret{width:14px; height:14px; margin-left:-.1rem}
+#roofglow .rg-menu.rg-addmenu{right:0; top:calc(100% + 4px); min-width:15.5rem}
+#roofglow .rg-stype{font-size:.72rem; font-weight:500; color:var(--rg-muted); white-space:nowrap}
+
+/* ---------- Measuring dropdown in the hint bar ---------- */
+#roofglow .rg-hintbar{flex-wrap:wrap}
+#roofglow .rg-measure{display:flex; align-items:center; gap:.4rem; margin-left:auto; font-size:.8rem; font-weight:600; color:var(--rg-ink2)}
+#roofglow .rg-measure select{min-height:32px; padding:.2rem .45rem; font-size:.85rem; max-width:15rem}
+
+/* ---------- Toolbar decoration dropdown ---------- */
+#roofglow .rg-dmenu{position:absolute; z-index:8; width:240px; max-height:min(60vh,430px); overflow-y:auto; overscroll-behavior:contain; display:grid; padding:.35rem;
+  background:var(--rg-panel); border:1px solid var(--rg-line); border-radius:10px; box-shadow:0 12px 30px rgba(15,30,58,.22)}
+#roofglow .rg-dmenu button{justify-content:flex-start; border:0; background:none; min-height:36px; font-weight:500; padding:.4rem .6rem}
+#roofglow .rg-dmenu button:hover:not(:disabled),#roofglow .rg-dmenu button:focus-visible{background:var(--rg-bg)}
+#roofglow .rg-dmhead{font-size:.7rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--rg-muted); padding:.45rem .6rem .2rem}
+
+/* ---------- Decorations: collapsed card with tabs ---------- */
+#roofglow .rg-decocard{padding:0}
+#roofglow .rg-decocard summary{display:flex; align-items:center; justify-content:space-between; cursor:pointer; list-style:none; padding:.9rem 1.1rem; min-height:52px; border-radius:var(--rg-radius)}
+#roofglow .rg-decocard summary::-webkit-details-marker{display:none}
+#roofglow .rg-decocard summary:focus-visible{outline-offset:-2px}
+#roofglow .rg-decocard[open] .rg-chev{transform:rotate(180deg)}
+#roofglow .rg-dcount{font-size:.85rem; font-weight:600; color:var(--rg-muted)}
+#roofglow .rg-decobody{padding:0 1.1rem 1rem}
+#roofglow .rg-decobody .rg-note{margin-top:0}
+#roofglow .rg-dtabs{display:flex; padding:3px; margin:0 0 .75rem; background:var(--rg-bg); border:1px solid var(--rg-line); border-radius:10px}
+#roofglow button.rg-dtab{flex:1 1 0; min-height:36px; border:0; background:transparent; border-radius:8px; color:var(--rg-muted); font-weight:600}
+#roofglow button.rg-dtab:hover:not(:disabled){border-color:transparent; color:var(--rg-ink)}
+#roofglow button.rg-dtab[aria-selected="true"]{background:var(--rg-panel); color:var(--rg-ink); box-shadow:0 1px 3px rgba(15,30,58,.14)}
+#roofglow .rg-actions .rg-lbl{margin-top:0}
+
+/* ---------- Price ---------- */
+#roofglow .rg-pbig{display:flex; align-items:baseline; gap:.5rem; flex-wrap:wrap; margin:.6rem 0 .5rem}
+#roofglow .rg-pbig strong{font-size:1.7rem; font-weight:700; letter-spacing:-.02em; font-variant-numeric:tabular-nums}
+#roofglow .rg-pbig span{color:var(--rg-muted); font-size:.83rem}
+#roofglow .rg-pempty{color:var(--rg-muted); font-size:.85rem}
+#roofglow .rg-ptable{width:100%; border-collapse:collapse; font-size:.83rem; font-variant-numeric:tabular-nums}
+#roofglow .rg-ptable th,#roofglow .rg-ptable td{padding:.4rem .25rem; border-bottom:1px solid var(--rg-line); text-align:right; vertical-align:middle}
+#roofglow .rg-ptable th:first-child,#roofglow .rg-ptable td:first-child{text-align:left; padding-left:0}
+#roofglow .rg-ptable td:last-child,#roofglow .rg-ptable th:last-child{padding-right:0}
+#roofglow .rg-ptable thead th{font-size:.72rem; font-weight:600; color:var(--rg-muted); text-transform:uppercase; letter-spacing:.04em}
+#roofglow .rg-ptable td:first-child small{display:block; font-size:.72rem; color:var(--rg-muted)}
+#roofglow .rg-pname{font-weight:600}
+#roofglow .rg-pqty{white-space:nowrap}
+#roofglow .rg-prate{white-space:nowrap}
+#roofglow .rg-rate{display:inline-flex; align-items:center; gap:1px; color:var(--rg-muted)}
+#roofglow .rg-ptable input[type=number]{width:4.4rem; min-height:30px; padding:.2rem .3rem; font-size:.83rem; text-align:right}
+#roofglow .rg-ptable .rg-unit{font-size:.72rem; color:var(--rg-muted); margin-left:2px}
+#roofglow .rg-ptable tfoot th,#roofglow .rg-ptable tfoot td{border-bottom:0; font-size:.95rem; font-weight:700; padding-top:.55rem}
+#roofglow .rg-ptable tr.rg-needrate input{border-color:var(--rg-amber); background:var(--rg-amber-bg)}
+#roofglow .rg-setp{font-size:.75rem; font-weight:600; color:var(--rg-warn-ink)}
+#roofglow .rg-amt{font-weight:600; white-space:nowrap}
+#roofglow .rg-subh{font-size:.75rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--rg-muted); margin:1.1rem 0 0; padding-top:.8rem; border-top:1px solid var(--rg-line)}
+#roofglow .rg-subh + .rg-estbig{margin-top:.35rem}
+
 /* ---------- Mobile action bar ---------- */
 #roofglow .rg-mbar{display:none}
 
@@ -326,7 +383,18 @@
   #roofglow .rg-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
   #roofglow .rg-tileimg{aspect-ratio:4/3}
   #roofglow .rg-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  #roofglow .rg-ptable input[type=number]{width:3.8rem}
+  #roofglow .rg-ptable .rg-unit{display:none}
+  #roofglow .rg-measure{margin-left:0}
   #roofglow .rg-pvctrl label{flex:1 1 100%}
+}
+
+/* Keep hidden elements hidden inside the dialogs RoofGlow adds to <body> */
+#roofglow-sv [hidden],#roofglow-map [hidden],#roofglow-ai [hidden]{display:none !important}
+
+@container roofglow (max-width:400px){
+  #roofglow button.rg-zoomval{display:none}
+  #roofglow .rg-zoom .rg-tool{width:36px}
 }
 
 /* ---------- Find by address (Street View) ----------
@@ -389,7 +457,7 @@
 #roofglow-map .rgsv-msg.rgsv-err{color:#B3261E}
 #roofglow-map .rgmap-body{display:flex; flex:1 1 auto; min-height:0; border-top:1px solid #E2E7EE}
 #roofglow-map .rgmap-view{flex:1 1 auto; height:min(62vh,600px); min-height:300px; background:#0E1626}
-#roofglow-map .rgmap-side{flex:0 0 290px; display:flex; flex-direction:column; gap:.7rem; padding:.9rem 1rem; border-left:1px solid #E2E7EE; overflow:auto; max-height:min(62vh,600px)}
+#roofglow-map .rgmap-side{flex:0 0 320px; display:flex; flex-direction:column; gap:.7rem; padding:.9rem 1rem; border-left:1px solid #E2E7EE; overflow:auto; max-height:min(62vh,600px)}
 #roofglow-map .rgmap-cur{font-size:.9rem; color:#2E3B55}
 #roofglow-map .rgmap-cur b{color:#0F1E3A; font-variant-numeric:tabular-nums}
 #roofglow-map .rgmap-acts{display:flex; gap:.5rem}
@@ -397,7 +465,10 @@
 #roofglow-map label{display:grid; gap:.25rem; margin:0; font-size:.83rem; font-weight:600; color:#2E3B55}
 #roofglow-map select{font:inherit; font-size:.9rem; color:#0F1E3A; background:#fff; border:1px solid #CDD5E1; border-radius:8px; padding:.35rem .5rem; min-height:36px; margin:0; height:auto; width:auto; -webkit-appearance:menulist; appearance:auto}
 #roofglow-map .rgmap-list{list-style:none; margin:0; padding:0; display:grid; gap:.35rem}
-#roofglow-map .rgmap-list li{display:grid; grid-template-columns:1fr auto auto auto; align-items:center; gap:.4rem; padding:.3rem .4rem .3rem .6rem; border:1px solid #E2E7EE; border-radius:8px; font-size:.88rem; margin:0}
+#roofglow-map .rgmap-list li{display:grid; grid-template-columns:1fr auto auto; align-items:center; gap:.3rem .4rem; padding:.35rem .4rem .45rem .6rem; border:1px solid #E2E7EE; border-radius:8px; font-size:.88rem; margin:0}
+#roofglow-map .rgmap-opts{grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:.35rem}
+#roofglow-map .rgmap-opts select{flex:1 1 7rem; min-height:34px; font-size:.82rem}
+#roofglow-map .rgmap-opts .rgmap-cname{flex:1 1 100%; min-height:34px; padding:.3rem .5rem; font-size:.85rem}
 #roofglow-map .rgmap-list li b{font-variant-numeric:tabular-nums}
 #roofglow-map .rgmap-list li.rgmap-empty{display:block; color:#5A6780; border:0; padding:0}
 #roofglow-map .rgmap-total{margin-top:auto; padding-top:.6rem; border-top:1px solid #E2E7EE; font-size:.95rem}

@@ -18,16 +18,16 @@ Webflow's Assets panel doesn't accept `.css` or `.js` files, and the JavaScript 
 1. Create a free account at github.com if you don't have one.
 2. Click **New repository**. Name it exactly `roofglow`, set it to **Public**, and click **Create repository**. jsDelivr can only serve files from public repositories.
 3. On the new repository page, click **uploading an existing file**. Drag in `roofglow.css`, `roofglow.js`, and this README, then click **Commit changes**.
-4. Create a version tag. On the repository page, click **Releases**, then **Create a new release**. Under **Choose a tag**, type `2.8.0`, choose **Create new tag**, and click **Publish release**.
+4. Create a version tag. On the repository page, click **Releases**, then **Create a new release**. Under **Choose a tag**, type `3.0.0`, choose **Create new tag**, and click **Publish release**.
 
 Your files are now available at:
 
 ```
-https://cdn.jsdelivr.net/gh/YOUR-GITHUB-USERNAME/roofglow@2.8.0/roofglow.css
-https://cdn.jsdelivr.net/gh/YOUR-GITHUB-USERNAME/roofglow@2.8.0/roofglow.js
+https://cdn.jsdelivr.net/gh/YOUR-GITHUB-USERNAME/roofglow@3.0.0/roofglow.css
+https://cdn.jsdelivr.net/gh/YOUR-GITHUB-USERNAME/roofglow@3.0.0/roofglow.js
 ```
 
-Open both links in your browser, with your username in place. Each should show the file's code. If you see an error, check that the repository is public and the tag is exactly `2.8.0`.
+Open both links in your browser, with your username in place. Each should show the file's code. If you see an error, check that the repository is public and the tag is exactly `3.0.0`.
 
 ## Step 2: Prepare the embed code
 
@@ -84,6 +84,24 @@ Notes:
 - If Google doesn't allow the browser to read the image's pixels, the night preview uses a simpler darkening, and Download asks you to take a screenshot instead. Everything else works the same.
 - Since this page is for your own use, you can password-protect it in Webflow's page settings, which Webflow offers on paid plans.
 
+## Categories and pricing
+
+**Light strings are categories.** Click **Add** in Light strings to add one: Roofline, Hips and ridges, Hips, Ridges, Garden bed & walkway outline, Windows, Garage, or Custom (you name it right away). New runs go on the selected string. While tracing, the **Measuring** dropdown above the photo picks a string or starts a new Front roofline, Hips and ridges, Ridge, Garden bed & walkway outline, or Custom measurement. On the satellite map, choose what each line is; lines are added to a string of that category automatically.
+
+**Satellite map slopes.** Level edges measure exactly. Mark rakes as **Rake** and hips as **Hip** and set the roof pitch: a 6/12 rake is about 12% longer than it looks from above, and a 6/12 hip about 6% longer. For best accuracy, draw hips and the ridge as separate lines.
+
+**Prices.** The Estimate shows a priced table that updates whenever measurements, items or categories change. Default rates:
+
+| Item | Price |
+|---|---|
+| Roofline | $8.30/ft |
+| Hips and ridges (also Hips, Ridges) | $8.50/ft |
+| Garden bed & walkway outline | $7.00/ft |
+| Mini lights, 25-ft string | $30/string |
+| LED Nobel wreath, 36", bow included | $325 each |
+
+Windows, Garage, each Custom string, and decorations without a listed price start at $0 and show **set price**. Type any rate right in the table; RoofGlow remembers your rates on that device. Footage is priced on measured feet rounded up to the next whole foot. To change the built-in defaults for everyone, edit `RATE_DEFAULTS` in `roofglow.js`.
+
 ## Measure on satellite map
 
 Click **Measure on satellite map** (in Light strings) or **Measure on map** (in the empty photo area). It uses the same Google Maps API key as Find by address, and needs no additional APIs. Find the address, click along each roof edge, then double-click or press **Finish line**. Drag a line's points to adjust it. Mark rakes and other sloped edges as **Sloped** and choose the roof pitch: a satellite looks straight down, so sloped edges appear shorter than they are, and RoofGlow corrects for the pitch (a 6/12 slope is about 12% longer than it looks from above). **Add to estimate** adds the lines as runs on the selected string. Each map opening is a Google Maps load, which Google bills separately; check your budget alert covers it.
@@ -114,7 +132,7 @@ A ChatGPT Plus subscription can't be used for this. OpenAI's API is a separate a
 In `roofglow.html`, replace `YOUR-AI-RELAY-URL` with the Worker address, paste the embed into Webflow, and publish.
 
 ### Using it
-In the Night preview, click **Render with AI**, enter your passcode the first time, and click **Render image**. It usually takes under a minute. **High** quality looks best; **Standard** is faster and cheaper. You can add extra instructions, such as "light snow on the lawn".
+In the Night preview, click **Render with AI**, enter your passcode the first time, and click **Render image**. It usually takes under a minute. **High** quality looks best; **Standard** is faster and cheaper. Choose a **Scene**: As designed, Light snow, or Winter wonderland (snow on the roof, lawn, bushes and trees, with falling snowflakes, never covering the lights). You can also add extra instructions.
 
 Notes:
 - The AI keeps your design as closely as it can, but it can still shift small details. Use the regular preview as the exact design.
@@ -130,8 +148,8 @@ Mini light estimates use your strand: 50 lights, 6 in apart, 25 ft per strand. I
 jsDelivr caches tagged versions permanently, so to publish changes:
 
 1. Upload the changed `roofglow.css` or `roofglow.js` to the GitHub repository.
-2. Create a new release with a new tag, for example `2.8.1`.
-3. In the Webflow embed, change `@2.8.0` to `@2.8.1` in both URLs and republish.
+2. Create a new release with a new tag, for example `3.0.1`.
+3. In the Webflow embed, change `@3.0.0` to `@3.0.1` in both URLs and republish.
 
 The HTML in the embed only needs to change if the structure of the tool changes.
 

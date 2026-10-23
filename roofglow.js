@@ -23,9 +23,31 @@
 
   const S = {
     img:null, mode:'scale', scalePts:[], pxPerFt:null,
-    strings:[{id:1,name:'First floor',color:COLORS[0]}], active:1, nextId:2,
+    strings:[{id:1,name:'Roofline',color:COLORS[0],type:'roofline'}], active:1, nextId:2,
     runs:[], current:[], hover:null, manual:[], photoCount:0
   };
+  /* String categories. Each string's category sets its price per foot. */
+  const STRING_TYPES = {
+    roofline:   {label:'Roofline'},
+    hipsridges: {label:'Hips and ridges'},
+    hips:       {label:'Hips'},
+    ridges:     {label:'Ridges'},
+    garden:     {label:'Garden bed & walkway outline'},
+    windows:    {label:'Windows'},
+    garage:     {label:'Garage'},
+    custom:     {label:'Custom'}
+  };
+  const typeOf = st => st.type && STRING_TYPES[st.type] ? st.type : 'roofline';
+  /* Prices. Edit them right in the Estimate; changes are remembered on this device.
+     Hips and Ridges on their own use the Hips and Ridges rate. */
+  const RATE_DEFAULTS = {roofline:8.30, hipsridges:8.50, hips:8.50, ridges:8.50, garden:7.00, windows:0, garage:0, mini:30, wreath:325};
+  const PRICE_NAMES = {mini:'Mini lights — 25-ft string', wreath:'LED Nobel wreath, 36", bow included'};
+  S.rates = Object.assign({}, RATE_DEFAULTS);
+  try { Object.assign(S.rates, JSON.parse(localStorage.getItem('roofglow-rates') || '{}')); } catch(_){}
+  const saveRates = () => { try { localStorage.setItem('roofglow-rates', JSON.stringify(S.rates)); } catch(_){} };
+  const rateKey = st => typeOf(st) === 'custom' ? 'custom:' + st.id : typeOf(st);
+  const money = v => v.toLocaleString('en-US', {style:'currency', currency:'USD'});
+
   const cv = $('#cv'), ctx = cv.getContext('2d'), stage = $('#stage'), empty = $('#empty'), ws = $('#ws');
   let view = {k:1,w:0,h:0};
   S.zoom = 1;
@@ -352,7 +374,18 @@
      like Google Maps' own measuring tool. Lines go into the estimate as runs. */
   let mapDlg = null, gmap = null, mapLines = [], mapCur = null, spherical = null, MapLabel = null, mapLineN = 0;
   const M2FT = 3.28084;
-  const pitchFactor = p => Math.sqrt(1 + (p / 12) * (p / 12));   // true length of a sloped edge vs. its top view
+  const pitchFactor = p => Math.sqrt(1 + (p / 12) * (p / 12));   // a rake (sloped edge) vs. its top view
+  const hipFactor = p => Math.sqrt(1 + (p / 12) * (p / 12) / 2);  // a hip runs diagonally, so it rises over a longer run
+  // What each map line measures; lines are added to a string of the matching category
+  const MAP_CATS = {
+    roofline:   {label:'Front roofline',        type:'roofline',   slope:'level'},
+    hipsridges: {label:'Hips and ridges',       type:'hipsridges', slope:'hip'},
+    ridge:      {label:'Ridge',                 type:'ridges',     slope:'level'},
+    garden:     {label:'Garden bed & walkway',  type:'garden',     slope:'level'},
+    custom:     {label:'Custom',                type:'custom',     slope:'level'}
+  };
+  const SLOPES = {level:'Level', rake:'Rake (sloped)', hip:'Hip'};
+  const typeToCat = {roofline:'roofline', hipsridges:'hipsridges', hips:'hipsridges', ridges:'ridge', garden:'garden', custom:'custom'};
   function mapDialog(){
     if (mapDlg) return mapDlg;
     mapDlg = document.createElement('dialog');
@@ -374,14 +407,13 @@
             <button type="button" class="rgsv-btn rgsv-light" id="rg-mapUndo" disabled>Undo point</button>
             <button type="button" class="rgsv-btn" id="rg-mapFinish" disabled>Finish line</button>
           </div>
-          <label class="rgmap-pitch">Roof pitch for sloped lines <select id="rg-mapPitch">${pitchOpts}</select></label>
+          <label class="rgmap-pitch">Roof pitch (for rakes and hips) <select id="rg-mapPitch">${pitchOpts}</select></label>
           <ul class="rgmap-list" id="rg-mapList"></ul>
           <p class="rgmap-total">Total: <b id="rg-mapTotal">0 ft</b></p>
         </div>
       </div>
       <div class="rgsv-foot">
-        <p class="rgsv-tip">Click along a roof edge, then double-click or Finish line. Drag a line's points to adjust it. Mark rakes and other sloped edges as Sloped.</p>
-        <label class="rgmap-to">Add to <select id="rg-mapStr"></select></label>
+        <p class="rgsv-tip">Click along an edge, then double-click or Finish line. Drag points to adjust. Choose what each line is; for best accuracy, draw hips and the ridge as separate lines.</p>
         <button type="button" class="rgsv-btn" id="rg-mapAdd" disabled>Add to estimate</button>
       </div>`;
     document.body.appendChild(mapDlg);
@@ -399,7 +431,6 @@
   async function openMap(){
     mapDialog();
     if (typeof mapDlg.showModal === 'function') mapDlg.showModal(); else mapDlg.setAttribute('open', '');
-    $('#mapStr').innerHTML = S.strings.map(st => `<option value="${st.id}"${st.id === S.active ? ' selected' : ''}>${esc(st.name)}</option>`).join('');
     if (!GKEY){
       mapMsg('The satellite map needs a Google Maps API key. Add it to the RoofGlow embed (data-rg-gmaps-key). The README explains how.', true);
       $('#mapGo').disabled = true; $('#mapAddr').disabled = true; return;
@@ -461,7 +492,7 @@
     finally { $('#mapGo').disabled = false; }
   }
   const lineFlatFt = pl => spherical ? spherical.computeLength(pl.getPath()) * M2FT : 0;
-  const lineFt = ln => lineFlatFt(ln.poly) * (ln.type === 'slope' ? pitchFactor(+$('#mapPitch').value) : 1);
+  const lineFt = ln => { const p = +$('#mapPitch').value; return lineFlatFt(ln.poly) * (ln.slope === 'rake' ? pitchFactor(p) : ln.slope === 'hip' ? hipFactor(p) : 1); };
   // the point halfway along a line, for its label
   function midOf(path){
     const n = path.getLength(); if (n < 2) return path.getAt(0);
@@ -477,7 +508,9 @@
     if (!mapCur) return;
     const path = mapCur.getPath();
     if (path.getLength() < 2){ mapCur.setMap(null); mapCur.label.setMap(null); mapCur = null; mapRender(); return; }
-    const ln = {poly: mapCur, label: mapCur.label, type: 'level', n: ++mapLineN};
+    // a new line starts as whatever the selected string measures
+    const act = strOf(S.active), cat = typeToCat[typeOf(act)] || 'roofline';
+    const ln = {poly: mapCur, label: mapCur.label, n: ++mapLineN, cat, slope: MAP_CATS[cat].slope, cname: cat === 'custom' ? act.name : ''};
     mapCur.setOptions({editable: true, clickable: true, strokeColor: '#F2B544', strokeWeight: 4});
     ['insert_at', 'set_at', 'remove_at'].forEach(ev => path.addListener(ev, mapRender));   // dragging points updates lengths
     mapLines.push(ln); mapCur = null;
@@ -503,9 +536,15 @@
       ln.label.update(midOf(ln.poly.getPath()), fmt(ft));
       const li = document.createElement('li');
       li.innerHTML = `<span class="rgmap-name">Line ${ln.n}</span><b>${fmt(ft)}</b>
-        <select aria-label="Line ${ln.n} type"><option value="level"${ln.type === 'level' ? ' selected' : ''}>Level</option><option value="slope"${ln.type === 'slope' ? ' selected' : ''}>Sloped</option></select>
-        <button type="button" class="rgsv-btn rgsv-close" aria-label="Remove line ${ln.n}">✕</button>`;
-      li.querySelector('select').onchange = e => { ln.type = e.target.value; mapRender(); };
+        <button type="button" class="rgsv-btn rgsv-close" aria-label="Remove line ${ln.n}">✕</button>
+        <span class="rgmap-opts">
+          <select class="rgmap-cat" aria-label="Line ${ln.n}: what it measures">${Object.keys(MAP_CATS).map(k => `<option value="${k}"${k === ln.cat ? ' selected' : ''}>${MAP_CATS[k].label}</option>`).join('')}</select>
+          <select class="rgmap-slope" aria-label="Line ${ln.n}: slope">${Object.keys(SLOPES).map(k => `<option value="${k}"${k === ln.slope ? ' selected' : ''}>${SLOPES[k]}</option>`).join('')}</select>
+          ${ln.cat === 'custom' ? `<input type="text" class="rgsv-input rgmap-cname" placeholder="Name, e.g. Porch" aria-label="Line ${ln.n}: custom name">` : ''}
+        </span>`;
+      li.querySelector('.rgmap-cat').onchange = e => { ln.cat = e.target.value; ln.slope = MAP_CATS[ln.cat].slope; mapRender(); };
+      li.querySelector('.rgmap-slope').onchange = e => { ln.slope = e.target.value; mapRender(); };
+      const cn = li.querySelector('.rgmap-cname'); if (cn){ cn.value = ln.cname; cn.oninput = () => { ln.cname = cn.value; }; }
       li.querySelector('button').onclick = () => { ln.poly.setMap(null); ln.label.setMap(null); mapLines = mapLines.filter(x => x !== ln); mapRender(); };
       ul.appendChild(li);
     });
@@ -517,17 +556,23 @@
   function mapAdd(){
     if (mapCur) mapFinish();
     if (!mapLines.length) return;
-    const sid = +$('#mapStr').value || S.active, p = +$('#mapPitch').value;
+    const p = +$('#mapPitch').value, used = new Set();
+    // each line goes to a string of its category: the selected one if it matches, else an existing one, else a new one
     mapLines.forEach(ln => {
-      S.manual.push({name: `Map line ${ln.n}${ln.type === 'slope' ? ` (sloped ${p}/12)` : ''}`, feet: lineFt(ln), sid});
+      const c = MAP_CATS[ln.cat], cname = (ln.cname || '').trim() || 'Custom';
+      const fits = st => typeOf(st) === c.type && (c.type !== 'custom' || st.name.toLowerCase() === cname.toLowerCase());
+      let st = fits(strOf(S.active)) ? strOf(S.active) : S.strings.find(fits);
+      if (!st) st = addString(c.type, c.type === 'custom' ? cname : c.label, true);
+      const how = ln.slope === 'rake' ? ` (rake, ${p}/12)` : ln.slope === 'hip' ? ` (hip, ${p}/12)` : '';
+      S.manual.push({name: `Map line ${ln.n}${how}`, feet: lineFt(ln), sid: st.id});
+      used.add(st.name);
       ln.poly.setMap(null); ln.label.setMap(null);
     });
-    const n = mapLines.length, st = strOf(sid).name;
+    const n = mapLines.length;
     mapLines = []; mapRender();
     mapDlg.close();
-    S.active = sid;
     update();
-    hint(`Added ${n} map line${n === 1 ? '' : 's'} to ${esc(st)}.`, true);
+    hint(`Added ${n} map line${n === 1 ? '' : 's'} to ${esc([...used].join(', '))}.`, true);
   }
 
   /* ---------- Zoom ---------- */
@@ -895,11 +940,11 @@
     if (m !== 'scale') $('#scaleform').classList.remove('rg-show');
     else if (S.scalePts.length === 2 && !S.pxPerFt) $('#scaleform').classList.add('rg-show');
     if (m !== 'decor'){ finishGarland(); S.selDecor = null; }
+    else { $('#decoCard').open = true; setDecoTab(groupOf(S.decorKind)); }
     update();
   }
   $('#mScale').onclick = () => { finishRun(); setMode('scale'); };
   $('#mTrace').onclick = () => setMode('trace');
-  $('#addDeco').onclick = () => { finishRun(); setMode('decor'); };
 
   $('#applyScale').onclick = () => {
     const ft = num('#sFt') + num('#sIn')/12;
@@ -1406,6 +1451,42 @@
     S.decorKind = b.dataset.kind; S.selDecor = null;
     setMode('decor');
   });
+  // Classic / Wire frame tabs (Classic first, and the default)
+  const groupOf = kind => isWire(kind) ? 'wire' : 'classic';
+  function setDecoTab(tab){
+    root.querySelectorAll('.rg-dtab').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === tab));
+    root.querySelectorAll('#rg-decoPick [data-group]').forEach(g => g.hidden = g.dataset.group !== tab);
+  }
+  root.querySelectorAll('.rg-dtab').forEach(b => b.onclick = () => setDecoTab(b.dataset.tab));
+  // Toolbar "Add decoration": a dropdown of every item, grouped like the tabs
+  const dmenu = $('#dmenu');
+  dmenu.innerHTML = ['classic', 'wire'].map(gp => `<p class="rg-dmhead">${gp === 'classic' ? 'Classic' : 'Wire frame'}</p>` +
+    [...root.querySelectorAll(`#rg-decoPick [data-group="${gp}"] [data-kind]`)].map(t =>
+      `<button type="button" role="menuitem" data-kind="${t.dataset.kind}">${t.querySelector('.rg-tilelbl').textContent}</button>`).join('')).join('');
+  function closeDmenu(){ dmenu.hidden = true; $('#addDeco').setAttribute('aria-expanded', false); }
+  $('#addDeco').onclick = e => {
+    e.stopPropagation();
+    if (!dmenu.hidden){ closeDmenu(); return; }
+    const b = $('#addDeco'), wr = ws.getBoundingClientRect(), br = b.getBoundingClientRect();
+    dmenu.style.top = (br.bottom - wr.top + 6) + 'px';
+    dmenu.style.maxHeight = Math.max(160, wr.height - (br.bottom - wr.top) - 14) + 'px';   // fit inside the photo area; scroll for the rest
+    dmenu.style.left = Math.max(8, Math.min(br.left - wr.left, wr.width - 250)) + 'px';
+    dmenu.hidden = false; b.setAttribute('aria-expanded', true);
+    (dmenu.querySelector(`[data-kind="${S.decorKind}"]`) || dmenu.querySelector('button')).focus();
+  };
+  dmenu.querySelectorAll('button').forEach(b => b.onclick = () => {
+    closeDmenu(); finishRun();
+    S.decorKind = b.dataset.kind; S.selDecor = null;
+    setDecoTab(groupOf(b.dataset.kind)); $('#decoCard').open = true;
+    setMode('decor');
+  });
+  dmenu.addEventListener('keydown', e => {
+    const items = [...dmenu.querySelectorAll('button')], i = items.indexOf(document.activeElement);
+    if (e.key === 'Escape'){ closeDmenu(); $('#addDeco').focus(); }
+    else if (e.key === 'ArrowDown'){ e.preventDefault(); items[(i + 1) % items.length].focus(); }
+    else if (e.key === 'ArrowUp'){ e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+  });
+  root.addEventListener('click', e => { if (!dmenu.hidden && !e.target.closest('#rg-dmenu,#rg-addDeco')) closeDmenu(); });
   // Tile pictures: your wreath and bow photos, plus drawn garland and spritzer
   function tileArt(){
     root.querySelectorAll('#rg-decoPick button').forEach(b => {
@@ -1512,10 +1593,11 @@
   }
 
   /* Counts for the results card and copied summary */
-  function decorSummary(){
-    const all = [...S.decor.map(d => ({kind:d.kind, size:d.size, len: d.kind === 'garland' ? garlandFt(d) : null,
+  const decorAll = () => [...S.decor.map(d => ({kind:d.kind, size:d.size, len: d.kind === 'garland' ? garlandFt(d) : null,
                    bulbs: d.kind === 'bush' ? miniBulbs(d) : null, strands: d.kind === 'bush' ? miniStrands(d) : null,
                    feet: d.kind === 'bush' && miniFeet(d) ? miniFeet(d).total : null})), ...S.decorSaved];
+  function decorSummary(){
+    const all = decorAll();
     if (!all.length) return '';
     const parts = [];
     Object.keys(DECOR).filter(k => !isPath(k)).forEach(kind => {
@@ -1948,6 +2030,11 @@
     'a believable night sky; gentle, even exposure with no harsh patches, seams or halos; subtle realistic ambient light.',
     'Do not add any text, watermarks or logos.'
   ].join(' ');
+  const AI_SCENES = {
+    asis:   {label: 'As designed', text: ''},
+    light:  {label: 'Light snow', text: ' Add a light dusting of fresh, realistic snow on the roof, the lawn, the bushes and the tree branches, with a few gentle snowflakes in the air. The snow must not cover, hide, dim or move any Christmas light or decoration; every light stays fully visible in the same place and color. Do not change the shapes of the house or the landscaping; only add snow.'},
+    heavy:  {label: 'Winter wonderland', text: ' Turn the scene into a magical but realistic Christmas winter wonderland: a soft, fresh blanket of snow on the roof, the lawn, the bushes, the tree branches and along the walkway and driveway edges, snowflakes gently falling, a crisp cold night with the warm lights glowing against the snow. The snow must not cover, hide, dim or move any Christmas light or decoration; every light stays fully visible in the same place and color. Do not change the shapes of the house or the landscaping; only add snow.'}
+  };
   let aiDlg = null, aiBusy = false;
   function aiDialog(){
     if (aiDlg) return aiDlg;
@@ -1963,6 +2050,7 @@
           <label>Quality<select id="rg-aiQuality"><option value="medium">Standard</option><option value="high" selected>High (slower)</option></select></label>
         </div>
         <label class="rgai-remember"><input type="checkbox" id="rg-aiRemember" checked> Remember the passcode on this device</label>
+        <label>Scene<select id="rg-aiScene">${Object.keys(AI_SCENES).map(k => `<option value="${k}">${AI_SCENES[k].label}</option>`).join('')}</select></label>
         <label>Extra instructions (optional)<textarea id="rg-aiExtra" rows="2" placeholder="For example: light snow on the lawn, warm light in the windows"></textarea></label>
         <p class="rgsv-msg" id="rg-aiMsg" aria-live="polite"></p>
         <div class="rgai-result" id="rg-aiResult" hidden><img id="rg-aiImg" alt="AI rendering of the lighting design"></div>
@@ -1999,11 +2087,35 @@
     if (!pass){ aiMsg('Enter your passcode first.', true); $('#aiPass').focus(); return; }
     try { if ($('#aiRemember').checked) localStorage.setItem('roofglow-ai-pass', pass); else localStorage.removeItem('roofglow-ai-pass'); } catch(_){}
     // a clean frame: steady lights, no snow, no logo (the logo is added back afterwards, sharp and unchanged)
-    const src = document.createElement('canvas'), sc = Math.min(1, 1536 / Math.max(P.W, P.H));
     const full = document.createElement('canvas'); full.width = P.W; full.height = P.H;
     frame(performance.now(), false, full.getContext('2d'), true);
-    src.width = Math.round(P.W * sc); src.height = Math.round(P.H * sc);
-    src.getContext('2d').drawImage(full, 0, 0, src.width, src.height);
+    /* The AI only makes a few fixed shapes (3:2, 2:3, square) and trims anything that doesn't fit.
+       So place the picture inside exactly that shape, fill the margins with a mirror of the picture,
+       and cut the margins off the result afterwards: the whole image comes back, edge to edge. */
+    const aspect = P.W / P.H;
+    const [TW, TH] = aspect >= 1.2 ? [1536, 1024] : aspect <= .83 ? [1024, 1536] : [1024, 1024];
+    let cw, ch;
+    if (aspect > TW / TH){ cw = TW; ch = Math.round(TW / aspect); } else { ch = TH; cw = Math.round(TH * aspect); }
+    const cx = Math.floor((TW - cw) / 2), cy = Math.floor((TH - ch) / 2);
+    const src = document.createElement('canvas'); src.width = TW; src.height = TH;
+    const sg = src.getContext('2d');
+    sg.fillStyle = '#0d1424'; sg.fillRect(0, 0, TW, TH);
+    sg.drawImage(full, cx, cy, cw, ch);
+    const mirror = (padPx, vertical, far) => {
+      if (padPx <= 0) return;
+      const srcLen = Math.min(vertical ? P.H : P.W, padPx * (vertical ? P.H / ch : P.W / cw));
+      const drawn = srcLen * (vertical ? ch / P.H : cw / P.W);
+      sg.save();
+      if (vertical){
+        sg.translate(cx, far ? cy + ch : cy); sg.scale(1, -1);
+        sg.drawImage(full, 0, far ? P.H - srcLen : 0, P.W, srcLen, 0, far ? -drawn : 0, cw, drawn);
+      } else {
+        sg.translate(far ? cx + cw : cx, cy); sg.scale(-1, 1);
+        sg.drawImage(full, far ? P.W - srcLen : 0, 0, srcLen, P.H, far ? -drawn : 0, 0, drawn, ch);
+      }
+      sg.restore();
+    };
+    mirror(cy, true, false); mirror(TH - ch - cy, true, true); mirror(cx, false, false); mirror(TW - cw - cx, false, true);
     let image;
     try { image = src.toDataURL('image/jpeg', .9); }
     catch(_){ aiMsg('This Street View photo can’t be sent to the AI from the browser (Google blocks it). Use an uploaded photo instead.', true); return; }
@@ -2014,13 +2126,16 @@
     const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 240000);
     try {
       const r = await fetch(AI_URL, {method: 'POST', headers: {'Content-Type': 'application/json'}, signal: ctl.signal,
-        body: JSON.stringify({image, passcode: pass, quality: $('#aiQuality').value, prompt: AI_PROMPT + (extra ? ' Also: ' + extra.slice(0, 500) : '')})});
+        body: JSON.stringify({image, passcode: pass, quality: $('#aiQuality').value, size: `${TW}x${TH}`,
+          prompt: AI_PROMPT + AI_SCENES[$('#aiScene').value].text + (extra ? ' Also: ' + extra.slice(0, 500) : '')})});
       let out = null; try { out = await r.json(); } catch(_){}
       if (!r.ok || !out || !out.image) throw new Error((out && out.error) || `The AI relay answered with an error (${r.status}).`);
       // add your logo (and Google's credit for Street View photos) on top of the AI image
       const ai = await imgFromUrl(out.image);
-      const c = document.createElement('canvas'); c.width = ai.naturalWidth; c.height = ai.naturalHeight;
-      const g = c.getContext('2d'); g.drawImage(ai, 0, 0);
+      // cut the margins back off (works for any size the AI returns)
+      const fx = ai.naturalWidth / TW, fy = ai.naturalHeight / TH;
+      const c = document.createElement('canvas'); c.width = Math.round(cw * fx); c.height = Math.round(ch * fy);
+      const g = c.getContext('2d'); g.drawImage(ai, cx * fx, cy * fy, cw * fx, ch * fy, 0, 0, c.width, c.height);
       drawWatermark(g, c.width, c.height);
       if (S.source === 'streetview') credit(g, c.width, c.height);
       const url = c.toDataURL('image/jpeg', .93);
@@ -2040,11 +2155,12 @@
     if (!confirm('Start over? This clears the whole project: the photo, scale, all strings and runs, and all decorations. Your light settings stay the same.')) return;
     Object.assign(S, {
       img:null, mode:'scale', scalePts:[], pxPerFt:null,
-      strings:[{id:1,name:'First floor',color:COLORS[0]}], active:1, nextId:2,
+      strings:[{id:1,name:'Roofline',color:COLORS[0],type:'roofline'}], active:1, nextId:2,
       runs:[], current:[], hover:null, manual:[], photoCount:0, source:null, tainted:false,
       decor:[], decorSaved:[], garland:[], selDecor:null, decorKind:'wreath', drag:null, resize:null
     });
     root.querySelectorAll('#rg-decoPick button').forEach(b => b.setAttribute('aria-pressed', false));
+    closeAddMenu(); closeDmenu(); $('#decoCard').open = false; setDecoTab('classic');
     S.zoom = 1; S.menu = null; S.renaming = null; stage.style.height = ''; setFull(false);
     S.cropStack = []; S.crop = null; S.cropDrag = null; $('#cropbar').classList.remove('rg-show'); $('#mCrop').setAttribute('aria-pressed', false);
     $('#thumb').hidden = true; $('#manual').hidden = true; $('#runToggle').setAttribute('aria-expanded', false);
@@ -2065,14 +2181,43 @@
     finishRun();            // a run can't switch strings halfway through
     S.active = id; update();
   }
-  $('#addString').onclick = () => {
-    const n = S.strings.length + 1;
-    const names = {2:'Second floor', 3:'Garage', 4:'Porch'};
-    const s = {id:S.nextId++, name:names[n] || `String ${n}`, color:COLORS[(n-1) % COLORS.length]};
-    S.strings.push(s);
-    selectString(s.id);
-    if (S.img && S.pxPerFt) setMode('trace');
+  // Add a string of a category; Custom asks for a name right away
+  function addString(type, name, quiet){
+    const base = name || STRING_TYPES[type].label;
+    const taken = S.strings.filter(x => x.name === base || x.name.startsWith(base + ' ')).length;
+    const st = {id:S.nextId++, name: taken ? `${base} ${taken + 1}` : base, color: COLORS[S.strings.length % COLORS.length], type};
+    S.strings.push(st);
+    if (quiet) return st;
+    finishRun(); S.active = st.id;
+    if (type === 'custom' && !name) S.renaming = st.id;
+    if (S.img && S.pxPerFt && S.mode !== 'decor') setMode('trace'); else update();
+    return st;
+  }
+  const addMenu = $('#addMenu');
+  function closeAddMenu(){ addMenu.hidden = true; $('#addString').setAttribute('aria-expanded', false); }
+  $('#addString').onclick = e => {
+    e.stopPropagation();
+    const open = addMenu.hidden;
+    addMenu.hidden = !open; $('#addString').setAttribute('aria-expanded', open);
+    if (open) addMenu.querySelector('button').focus();
   };
+  addMenu.querySelectorAll('button').forEach(b => b.onclick = () => { closeAddMenu(); addString(b.dataset.type); });
+  root.addEventListener('click', e => { if (!addMenu.hidden && !e.target.closest('#rg-addMenu,#rg-addString')) closeAddMenu(); });
+  addMenu.addEventListener('keydown', e => { if (e.key === 'Escape'){ closeAddMenu(); $('#addString').focus(); } });
+
+  // Measuring dropdown while tracing: pick a string, or start a new one of a measurement type
+  const MEASURE_NEW = [['roofline','Front roofline'], ['hipsridges','Hips and ridges'], ['ridges','Ridge'], ['garden','Garden bed & walkway outline'], ['custom','Custom…']];
+  function renderMeasure(){
+    const sel = $('#measure');
+    sel.innerHTML = `<optgroup label="Strings">${S.strings.map(st => `<option value="s:${st.id}"${st.id === S.active ? ' selected' : ''}>${esc(st.name)}${st.name !== STRING_TYPES[typeOf(st)].label ? ` (${STRING_TYPES[typeOf(st)].label})` : ''}</option>`).join('')}</optgroup>
+      <optgroup label="Measure something new">${MEASURE_NEW.map(([t, l]) => `<option value="n:${t}:${l}">${l}</option>`).join('')}</optgroup>`;
+  }
+  $('#measure').onchange = e => {
+    const v = e.target.value;
+    if (v.startsWith('s:')) selectString(+v.slice(2));
+    else { const [, t, l] = v.split(':'); addString(t, t === 'custom' ? '' : l.replace('…', '')); }
+  };
+
   function removeString(id){
     if (S.strings.length < 2) return;
     const used = S.runs.some(r=>r.sid===id) || S.manual.some(m=>m.sid===id);
@@ -2142,6 +2287,70 @@
             circuits: Math.max(watts ? Math.ceil(watts/cap) : 0, per.filter(p=>p.watts).length ? 1 : 0)};
   }
 
+  /* ---------- Price ---------- */
+  // One line per measured string (by category) and per priced item
+  function priceLines(t){
+    const L = [];
+    t.per.forEach(p => {
+      if (!p.feet) return;
+      const st = p.s, ty = typeOf(st);
+      L.push({label: st.name, sub: ty === 'custom' ? 'Custom' : st.name !== STRING_TYPES[ty].label ? STRING_TYPES[ty].label : '',
+              qty: Math.ceil(p.feet - 1e-6), unit: 'ft', key: rateKey(st)});
+    });
+    const all = decorAll(), by = {};
+    all.forEach(x => (by[x.kind] = by[x.kind] || []).push(x));
+    if (by.bush){
+      const strands = by.bush.some(x => x.strands == null) ? null : by.bush.reduce((a, x) => a + x.strands, 0);
+      L.push({label: PRICE_NAMES.mini, qty: strands, unit: 'string', key: 'mini'});
+    }
+    if (by.wreath) L.push({label: PRICE_NAMES.wreath, qty: by.wreath.length, unit: 'each', key: 'wreath',
+      sub: by.wreath.some(x => x.size !== 36) ? 'priced as 36" wreaths' : ''});
+    Object.keys(DECOR).filter(k => k !== 'bush' && k !== 'wreath' && by[k]).forEach(k => {
+      if (k === 'garland'){
+        const ft = by.garland.some(x => x.len == null) ? null : Math.ceil(by.garland.reduce((a, x) => a + x.len, 0) - 1e-6);
+        L.push({label: 'Garland', qty: ft, unit: 'ft', key: 'd:garland'});
+      } else L.push({label: DECOR[k].name, qty: by[k].length, unit: 'each', key: 'd:' + k});
+    });
+    L.forEach(l => { l.rate = +(S.rates[l.key] || 0); l.amount = l.qty == null ? 0 : l.qty * l.rate; });
+    return L;
+  }
+  const unitTxt = u => u === 'ft' ? '/ft' : u === 'string' ? '/string' : ' each';
+  function renderPrice(t){
+    const box = $('#price'), L = priceLines(t);
+    const total = L.reduce((a, l) => a + l.amount, 0);
+    $('#pBig').textContent = money(total);
+    if (!L.length){ box.innerHTML = '<p class="rg-pempty">Measure a roofline or place decorations to see a price.</p>'; return; }
+    if (box.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;   // don't rebuild while a rate is being typed
+    box.innerHTML = `<table class="rg-ptable"><thead><tr><th scope="col">Item</th><th scope="col">Qty</th><th scope="col">Rate</th><th scope="col">Amount</th></tr></thead><tbody></tbody>
+      <tfoot><tr><th scope="row" colspan="3">Total</th><td class="rg-amt" id="rg-ptotal">${money(total)}</td></tr></tfoot></table>`;
+    const tb = box.querySelector('tbody');
+    L.forEach(l => {
+      const tr = document.createElement('tr');
+      tr.className = !l.rate ? 'rg-needrate' : '';
+      tr.innerHTML = `<td><span class="rg-pname"></span>${l.sub ? `<small></small>` : ''}</td>
+        <td class="rg-pqty">${l.qty == null ? 'set scale' : `${l.qty.toLocaleString()}${l.unit === 'ft' ? ' ft' : ''}`}</td>
+        <td class="rg-prate"><span class="rg-rate">$<input type="number" min="0" step="0.01" inputmode="decimal" value="${l.rate ? l.rate.toFixed(2) : ''}" placeholder="set" data-key="${esc(l.key)}"></span><span class="rg-unit">${unitTxt(l.unit)}</span></td>
+        <td class="rg-amt">${l.rate ? money(l.amount) : '<span class="rg-setp">set price</span>'}</td>`;
+      tr.querySelector('.rg-pname').textContent = l.label;
+      if (l.sub) tr.querySelector('small').textContent = l.sub;
+      const inp = tr.querySelector('input');
+      inp.setAttribute('aria-label', `Rate for ${l.label}, dollars${unitTxt(l.unit).replace(' each', ' each').replace('/', ' per ')}`);
+      inp.oninput = () => {
+        S.rates[l.key] = Math.max(0, parseFloat(inp.value) || 0); saveRates();
+        // update amounts in place so typing isn't interrupted
+        const L2 = priceLines(totals()), tot = L2.reduce((a, x) => a + x.amount, 0);
+        tb.querySelectorAll('tr').forEach((row, i) => {
+          const x = L2[i]; if (!x) return;
+          row.className = !x.rate ? 'rg-needrate' : '';
+          row.querySelector('.rg-amt').innerHTML = x.rate ? money(x.amount) : '<span class="rg-setp">set price</span>';
+          const other = row.querySelector('input'); if (other !== inp && other.dataset.key === l.key) other.value = inp.value;
+        });
+        $('#ptotal').textContent = money(tot); $('#pBig').textContent = money(tot);
+      };
+      tb.appendChild(tr);
+    });
+  }
+
   /* ---------- Render ---------- */
   let stickyHint = '';
   function hint(msg, sticky){
@@ -2191,6 +2400,10 @@
         </div>`;
       if (!renaming){
         li.querySelector('.rg-sname').textContent = s.name;
+        if (s.name !== STRING_TYPES[typeOf(s)].label || typeOf(s) === 'custom'){
+          const tg = document.createElement('span'); tg.className = 'rg-stype'; tg.textContent = STRING_TYPES[typeOf(s)].label;
+          li.querySelector('.rg-spick').appendChild(tg);
+        }
         li.querySelector('.rg-spick').onclick = () => selectString(s.id);
       } else {
         const inp = li.querySelector('.rg-rename');
@@ -2235,9 +2448,10 @@
   }
 
   function renderResults(t){
+    renderPrice(t);
     const runCount = S.runs.length + (S.current.length>=2?1:0) + S.manual.length;
     $('#rTotal').textContent = fmt(t.total);
-    $('#rSub').textContent = `of roofline across ${runCount} run${runCount===1?'':'s'} on ${S.strings.length} string${S.strings.length===1?'':'s'}`;
+    $('#rSub').textContent = `of lights across ${runCount} run${runCount===1?'':'s'} on ${S.strings.length} string${S.strings.length===1?'':'s'}`;
     $('#rBuy').textContent = `${Math.ceil(t.buy)} ft`;
     $('#rBulbs').textContent = t.bulbs.toLocaleString();
     $('#rPackLabel').textContent = `${num('#pack')} ft lengths`;
@@ -2314,6 +2528,9 @@
       hint(`${act} each corner or peak. Finish run when done.${cal ? '' : ` Set scale to see lengths.`}`);
     }
     $('#addTo').textContent = `Adds to: ${strOf(S.active).name}`;
+    $('#measureWrap').hidden = !(has && S.mode === 'trace');
+    if (!$('#measureWrap').hidden) renderMeasure();
+    $('#dcount').textContent = S.decor.length ? `(${S.decor.length})` : '';
 
     const t = totals();
     renderStrings(t);
@@ -2325,15 +2542,21 @@
 
   $('#copy').onclick = async () => {
     const t = totals();
-    const lines = [
-      'Roofline lighting estimate',
-      `Measured: ${fmt(t.total)}`,
+    const PL = priceLines(t);
+    const lines = ['Christmas lighting estimate'];
+    if (PL.length){
+      PL.forEach(l => lines.push(`${l.label}${l.sub ? ` (${l.sub})` : ''}: ${l.qty == null ? 'set scale' : `${l.qty}${l.unit === 'ft' ? ' ft' : l.unit === 'string' ? ' strings' : ''}`} × ${money(l.rate)}${unitTxt(l.unit)} = ${money(l.amount)}`));
+      lines.push(`Estimated total: ${money(PL.reduce((a, l) => a + l.amount, 0))}`, '', 'Materials');
+    }
+    lines.push(
+      `Measured: ${fmt(t.total)}`);
+    lines.push(
       `Lights to buy (with ${num('#waste')}% extra): ${Math.ceil(t.buy)} ft`,
       `${num('#pack')} ft lengths: ${t.packs}`,
       `Bulbs at ${num('#spacing')} in spacing: ${t.bulbs}`,
       `Clips: ${t.clips}`,
       `Power: ${Math.round(t.watts)} W (${t.amps.toFixed(1)} A), ${t.circuits} circuit(s)`
-    ];
+    );
     t.per.forEach(p => {
       lines.push('', `${p.s.name}: ${fmt(p.feet)}, ${p.packs} × ${num('#pack')} ft, ${p.bulbs} bulbs, ${Math.round(p.watts)} W`);
       let n = 0;
