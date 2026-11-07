@@ -18,16 +18,16 @@ Webflow's Assets panel doesn't accept `.css` or `.js` files, and the JavaScript 
 1. Create a free account at github.com if you don't have one.
 2. Click **New repository**. Name it exactly `roofglow`, set it to **Public**, and click **Create repository**. jsDelivr can only serve files from public repositories.
 3. On the new repository page, click **uploading an existing file**. Drag in `roofglow.css`, `roofglow.js`, and this README, then click **Commit changes**.
-4. Create a version tag. On the repository page, click **Releases**, then **Create a new release**. Under **Choose a tag**, type `3.0.0`, choose **Create new tag**, and click **Publish release**.
+4. Create a version tag. On the repository page, click **Releases**, then **Create a new release**. Under **Choose a tag**, type `3.1.0`, choose **Create new tag**, and click **Publish release**.
 
 Your files are now available at:
 
 ```
-https://cdn.jsdelivr.net/gh/YOUR-GITHUB-USERNAME/roofglow@3.0.0/roofglow.css
-https://cdn.jsdelivr.net/gh/YOUR-GITHUB-USERNAME/roofglow@3.0.0/roofglow.js
+https://cdn.jsdelivr.net/gh/YOUR-GITHUB-USERNAME/roofglow@3.1.0/roofglow.css
+https://cdn.jsdelivr.net/gh/YOUR-GITHUB-USERNAME/roofglow@3.1.0/roofglow.js
 ```
 
-Open both links in your browser, with your username in place. Each should show the file's code. If you see an error, check that the repository is public and the tag is exactly `3.0.0`.
+Open both links in your browser, with your username in place. Each should show the file's code. If you see an error, check that the repository is public and the tag is exactly `3.1.0`.
 
 ## Step 2: Prepare the embed code
 
@@ -83,6 +83,12 @@ Notes:
 - Google's terms restrict tracing, editing, and saving Street View imagery. Review them for your use.
 - If Google doesn't allow the browser to read the image's pixels, the night preview uses a simpler darkening, and Download asks you to take a screenshot instead. Everything else works the same.
 - Since this page is for your own use, you can password-protect it in Webflow's page settings, which Webflow offers on paid plans.
+
+## Client quotes (PDF)
+
+In the Estimate, **Create client quote (PDF)** opens a quote form filled in from the estimate: client name, address and phone; quote number (it counts up automatically after each quote), date sent, material type (Lease or Purchase), light color, and the photo (the night preview or the latest AI render). Each item can be **Included** (counts toward the total), **Optional** (shown as "Not included" so the client can add it), or left off, and its name and description can be edited. Tax rate (default NY 8.625%), deposit percentage (default 50%), and the terms text are remembered on the device. **Download quote (PDF)** saves a two-page quote in the company's quote layout.
+
+The PDF is created in the browser with jsPDF 2.5.1, loaded from cdnjs only when a quote is made. Company details (name, address, phone, email, website) are in `const COMPANY` in `roofglow.js`; the phone number also appears under the logo on preview images and AI renders.
 
 ## Categories and pricing
 
@@ -148,8 +154,8 @@ Mini light estimates use your strand: 50 lights, 6 in apart, 25 ft per strand. I
 jsDelivr caches tagged versions permanently, so to publish changes:
 
 1. Upload the changed `roofglow.css` or `roofglow.js` to the GitHub repository.
-2. Create a new release with a new tag, for example `3.0.1`.
-3. In the Webflow embed, change `@3.0.0` to `@3.0.1` in both URLs and republish.
+2. Create a new release with a new tag, for example `3.1.0`.
+3. In the Webflow embed, change `@3.1.0` to `@3.1.0` in both URLs and republish.
 
 The HTML in the embed only needs to change if the structure of the tool changes.
 

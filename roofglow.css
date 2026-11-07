@@ -519,10 +519,59 @@
 #roofglow-ai :focus-visible{outline:2px solid #1C55C8; outline-offset:2px}
 #roofglow-ai .rgsv-msg{font-size:.9rem; color:#2E3B55; min-height:1.4em; font-variant-numeric:tabular-nums}
 #roofglow-ai .rgsv-msg.rgsv-err{color:#B3261E}
-#roofglow-ai .rgai-result img{display:block; width:100%; height:auto; border-radius:10px; border:1px solid #E2E7EE}
+#roofglow-ai .rgai-result img{display:block; width:100%; height:auto; border-radius:10px; border:1px solid #E2E7EE; transition:opacity .2s, filter .2s}
+#roofglow-ai .rgai-cap{font-size:.83rem; color:#2E3B55; margin:0 0 .4rem}
+#roofglow-ai .rgai-stale img{opacity:.35; filter:grayscale(.6)}
+#roofglow-ai .rgai-stale .rgai-cap{color:#6E4200; font-weight:600}
 #roofglow-ai .rgsv-foot{display:flex; gap:.6rem; justify-content:flex-end; padding:.75rem 1rem; border-top:1px solid #E2E7EE}
+#roofglow-ai .rgai-fresh{margin-right:auto}
 @media (max-width:600px){
   #roofglow-ai{width:100vw; max-width:100vw; height:100%; max-height:100%; border-radius:0}
   #roofglow-ai .rgai-row{grid-template-columns:1fr}
   #roofglow-ai .rgsv-foot .rgsv-btn{flex:1 1 0}
+}
+
+/* ---------- Client quote button + dialog (dialog on <body>, outside #roofglow) ---------- */
+#roofglow .rg-quotebtn{margin-top:.85rem; min-height:44px}
+#roofglow-quote [hidden]{display:none !important}
+#roofglow-quote{width:min(860px,96vw); max-width:96vw; max-height:94vh; padding:0; border:0; border-radius:14px;
+  background:#fff; color:#0F1E3A; box-shadow:0 24px 60px rgba(0,0,0,.35); overflow:hidden;
+  font:400 15px/1.5 "Inter",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif; box-sizing:border-box}
+#roofglow-quote *,#roofglow-quote *::before,#roofglow-quote *::after{box-sizing:border-box}
+#roofglow-quote[open]{display:flex; flex-direction:column}
+#roofglow-quote::backdrop{background:rgba(8,14,26,.62)}
+#roofglow-quote .rgsv-head{display:flex; justify-content:space-between; align-items:center; gap:1rem; padding:.8rem 1rem; border-bottom:1px solid #E2E7EE}
+#roofglow-quote h2{margin:0; padding:0; font-family:inherit; font-size:1.15rem; font-weight:700; line-height:1.2; color:inherit; text-transform:none}
+#roofglow-quote p{margin:0}
+#roofglow-quote .rgq-body{display:grid; gap:1rem; padding:1rem; overflow:auto}
+#roofglow-quote fieldset{display:grid; grid-template-columns:1fr 1fr; gap:.6rem .8rem; margin:0; padding:.8rem .9rem .9rem; border:1px solid #E2E7EE; border-radius:10px; min-width:0}
+#roofglow-quote legend{padding:0 .35rem; font-weight:700; font-size:.9rem}
+#roofglow-quote label{display:grid; gap:.25rem; margin:0; font-size:.82rem; font-weight:600; color:#2E3B55; min-width:0}
+#roofglow-quote .rgq-wide{grid-column:1 / -1}
+#roofglow-quote .rgsv-input,#roofglow-quote select,#roofglow-quote textarea{font:inherit; font-size:.92rem; color:#0F1E3A; background:#fff; border:1px solid #CDD5E1; border-radius:8px; padding:.45rem .6rem; margin:0; min-height:40px; width:100%; box-shadow:none; height:auto}
+#roofglow-quote select{-webkit-appearance:menulist; appearance:auto}
+#roofglow-quote textarea{resize:vertical}
+#roofglow-quote .rgq-hint{grid-column:1 / -1; font-size:.82rem; color:#5A6780}
+#roofglow-quote .rgq-items{grid-column:1 / -1; display:grid; gap:.6rem}
+#roofglow-quote .rgq-item{display:grid; grid-template-columns:1fr 13rem 6rem; gap:.4rem .5rem; align-items:center; padding:.55rem; border:1px solid #E2E7EE; border-radius:8px}
+#roofglow-quote .rgq-item textarea{grid-column:1 / -1; min-height:52px}
+#roofglow-quote .rgq-iamt{text-align:right; font-variant-numeric:tabular-nums}
+#roofglow-quote .rgq-sum{display:flex; flex-wrap:wrap; gap:.4rem 1.2rem; font-size:.9rem; color:#2E3B55}
+#roofglow-quote .rgq-sum b{color:#0F1E3A; font-variant-numeric:tabular-nums}
+#roofglow-quote .rgsv-btn{font:inherit; font-weight:600; font-size:.95rem; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:.4rem;
+  min-height:44px; padding:.5rem 1.1rem; margin:0; border-radius:8px; border:1px solid #0F2348; background:#0F2348; color:#fff; -webkit-appearance:none; appearance:none; box-shadow:none; text-transform:none}
+#roofglow-quote .rgsv-btn:hover:not(:disabled){background:#1B3566}
+#roofglow-quote .rgsv-btn:disabled{opacity:.45; cursor:not-allowed}
+#roofglow-quote .rgsv-close{background:transparent; color:#2E3B55; border-color:transparent; min-height:36px; width:36px; padding:0}
+#roofglow-quote .rgsv-close:hover:not(:disabled){background:#F3F5F8}
+#roofglow-quote :focus-visible{outline:2px solid #1C55C8; outline-offset:2px}
+#roofglow-quote .rgsv-msg{font-size:.9rem; color:#2E3B55; min-height:1.3em}
+#roofglow-quote .rgsv-msg.rgsv-err{color:#B3261E}
+#roofglow-quote .rgsv-foot{display:flex; gap:.6rem; justify-content:flex-end; padding:.75rem 1rem; border-top:1px solid #E2E7EE}
+@media (max-width:640px){
+  #roofglow-quote{width:100vw; max-width:100vw; height:100%; max-height:100%; border-radius:0}
+  #roofglow-quote fieldset{grid-template-columns:1fr}
+  #roofglow-quote .rgq-item{grid-template-columns:1fr auto}
+  #roofglow-quote .rgq-item select{grid-column:1 / -1; order:3}
+  #roofglow-quote .rgsv-foot .rgsv-btn{flex:1 1 auto}
 }
